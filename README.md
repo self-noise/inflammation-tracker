@@ -1,7 +1,8 @@
 # Inflammation Tracker
 
-A small, self-hosted Progressive Web App for daily inflammation logging. Runs
-in the browser, installs to phone home screen, works offline, and syncs entries
+A small, self-hosted [Progressive Web App](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/What_is_a_progressive_web_app) for daily self-reported inflammation logging (e.g., for inflammatory arthitis).
+
+It runs in the browser, installs to phone home screen, works offline, and syncs entries
 as CSV rows to your own [Koofr](https://koofr.eu) account via WebDAV. No
 backend, no database, no third-party service holding your data — just static
 files in front of a CSV file you own.
