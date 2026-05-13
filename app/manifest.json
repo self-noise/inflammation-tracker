@@ -1,0 +1,19 @@
+{
+  "name": "Inflammation Tracker",
+  "short_name": "Inflam",
+  "description": "Daily inflammation tracking with WebDAV sync to Koofr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

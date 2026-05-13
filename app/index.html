@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1a1a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <title>Inflammation Tracker</title>
+</head>
+<body>
+
+<header class="topbar">
+  <h1 id="view-title">My inflammation tracker</h1>
+  <div class="topbar-right">
+    <span id="queue-badge" class="badge hidden" title="Unsynced entries">0</span>
+    <button id="nav-settings" class="text-btn" aria-label="Settings"><span aria-hidden="true">⚙</span> Settings</button>
+    <button id="nav-entry" class="text-btn hidden" aria-label="Back"><span aria-hidden="true">←</span> Back</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ENTRY VIEW -->
+  <section id="view-entry" class="view">
+    <form id="entry-form" autocomplete="off">
+
+      <div class="row two-col">
+        <label>
+          <span class="lbl">Date</span>
+          <input type="date" id="f-date" required>
+        </label>
+        <label>
+          <span class="lbl">Time</span>
+          <input type="time" id="f-time" required>
+        </label>
+      </div>
+
+      <fieldset class="rag">
+        <legend>Inflammation</legend>
+        <div class="rag-buttons" role="radiogroup" aria-label="Inflammation score">
+          <button type="button" class="rag-btn rag-1" data-score="1" role="radio" aria-checked="false">
+            <span class="rag-label">1</span>
+            <span class="rag-sub">No symptoms</span>
+          </button>
+          <button type="button" class="rag-btn rag-2" data-score="2" role="radio" aria-checked="false">
+            <span class="rag-label">2</span>
+            <span class="rag-sub">Minor but noticable</span>
+          </button>
+          <button type="button" class="rag-btn rag-3" data-score="3" role="radio" aria-checked="false">
+            <span class="rag-label">3</span>
+            <span class="rag-sub">Moderate</span>
+          </button>
+          <button type="button" class="rag-btn rag-4" data-score="4" role="radio" aria-checked="false">
+            <span class="rag-label">4</span>
+            <span class="rag-sub">Severe</span>
+          </button>
+        </div>
+        <input type="hidden" id="f-score" required>
+      </fieldset>
+
+      <fieldset class="locations">
+        <legend>Locations</legend>
+        <div id="loc-grid" class="loc-grid"></div>
+        <label class="loc-other">
+          <input type="checkbox" id="f-loc-other-cb">
+          <span>Other:</span>
+          <input type="text" id="f-loc-other-text" maxlength="50" placeholder="add a location">
+        </label>
+      </fieldset>
+
+      <label class="row">
+        <span class="lbl">Dietary note</span>
+        <input type="text" id="f-diet" maxlength="200" placeholder="e.g. dairy, sugar">
+      </label>
+
+      <label class="row">
+        <span class="lbl">Other notes</span>
+        <input type="text" id="f-other" maxlength="200" placeholder="e.g. tired, stressed">
+      </label>
+
+      <fieldset class="medication">
+        <legend>Medication</legend>
+        <label class="checkbox-row">
+          <input type="checkbox" id="f-mtx">
+          <span>Methotrexate taken in the past 24 hours?</span>
+        </label>
+      </fieldset>
+
+      <div id="entry-status" class="status hidden"></div>
+
+      <div class="submit-bar">
+        <button type="submit" id="submit-btn" class="primary">Save entry</button>
+      </div>
+
+    </form>
+  </section>
+
+  <!-- SETTINGS VIEW -->
+  <section id="view-settings" class="view hidden">
+    <form id="settings-form" autocomplete="off">
+
+      <label class="row">
+        <span class="lbl">Koofr email</span>
+        <input type="email" id="s-email" placeholder="you@example.com" autocomplete="username">
+      </label>
+
+      <label class="row">
+        <span class="lbl">Koofr app password</span>
+        <input type="password" id="s-password" placeholder="app-specific password" autocomplete="current-password">
+        <small class="hint">Generate at koofr.eu &rarr; Account &rarr; Preferences &rarr; Password &rarr; Application-specific passwords. Stored only in this browser.</small>
+      </label>
+
+      <label class="row">
+        <span class="lbl">CSV path on Koofr</span>
+        <input type="text" id="s-path" placeholder="/inflammation/log.csv">
+      </label>
+
+      <label class="row">
+        <span class="lbl">Proxy URL (optional)</span>
+        <input type="text" id="s-proxy" placeholder="https://your-worker.workers.dev">
+        <small class="hint">Leave blank to talk directly to Koofr. If you hit CORS errors, deploy a Cloudflare Worker proxy and put its URL here.</small>
+      </label>
+
+      <div class="row">
+        <button type="button" id="test-btn" class="secondary">Test connection</button>
+        <button type="button" id="resync-btn" class="secondary">Retry sync (<span id="queue-count">0</span> queued)</button>
+      </div>
+
+      <div id="settings-status" class="status hidden"></div>
+
+      <div class="submit-bar">
+        <button type="submit" id="settings-save" class="primary">Save settings</button>
+      </div>
+
+    </form>
+  </section>
+
+</main>
+
+<script src="sync.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>

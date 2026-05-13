@@ -1,0 +1,860 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage[table]{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage{tabularx}
+\usepackage{array}
+
+% ---------- Colours ----------
+\definecolor{codebg}{HTML}{F4F4F4}
+\definecolor{codeborder}{HTML}{DDDDDD}
+\definecolor{codecomment}{HTML}{6A737D}
+\definecolor{codekey}{HTML}{0550AE}
+\definecolor{codestr}{HTML}{0A7F3F}
+\definecolor{accent}{HTML}{0F4F8B}
+\definecolor{warnbg}{HTML}{FFF4E5}
+\definecolor{warnbd}{HTML}{D58512}
+\definecolor{notebg}{HTML}{EAF4FB}
+\definecolor{notebd}{HTML}{2E7CB7}
+
+% ---------- Listings ----------
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  frame=single,
+  rulecolor=\color{codeborder},
+  framesep=4pt,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  showstringspaces=false,
+  commentstyle=\color{codecomment},
+  keywordstyle=\color{codekey}\bfseries,
+  stringstyle=\color{codestr},
+  literate={"}{{\textquotedbl}}1
+}
+
+\lstdefinelanguage{htaccess}{
+  morekeywords={AuthType,AuthName,AuthUserFile,Require,Header,RewriteEngine,RewriteCond,RewriteRule,AddType,Options,ErrorDocument,IndexIgnore},
+  morecomment=[l]{\#},
+  morestring=[b]"
+}
+
+\lstdefinelanguage{shell}{
+  morekeywords={chmod,htpasswd,ssh,scp,sftp,cd,ls,mv,cp,curl,wget,python3,find},
+  morecomment=[l]{\#},
+  morestring=[b]",
+  morestring=[b]'
+}
+
+% ---------- Section styling ----------
+\titleformat{\section}{\Large\bfseries\color{accent}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\color{accent!85!black}}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.6em}{0.6em}
+\titlespacing*{\subsection}{0pt}{1.2em}{0.4em}
+
+% ---------- Header / footer ----------
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\thepage}
+\fancyfoot[L]{\small\color{gray}Inflammation Tracker --- setup manual}
+
+% ---------- Callout boxes ----------
+\newcommand{\callout}[3]{%
+  \begin{center}%
+  \begin{tabularx}{\linewidth}{|>{\columncolor{#1}}X|}%
+  \hline
+  \textbf{#2}\par\smallskip #3\\[2pt]
+  \hline
+  \end{tabularx}%
+  \end{center}%
+}
+\newcommand{\notebox}[1]{\callout{notebg}{Note}{#1}}
+\newcommand{\warnbox}[1]{\callout{warnbg}{Important}{#1}}
+
+% ---------- Title ----------
+\title{\vspace{-1.5cm}\textbf{Inflammation Tracker}\\[4pt]\Large Setup \& Security Manual\\[2pt]\normalsize Hostinger deployment}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+\vspace{-2.5em}
+
+{\small\color{gray}\hrule\vspace{4pt}A self-contained Progressive Web App for daily inflammation tracking, synced to your own Koofr account via WebDAV. Hosted as static files on Hostinger; runs offline; installs to phone home screen.\vspace{4pt}\hrule}
+
+\vspace{1em}
+
+\tableofcontents
+
+% ============================================================
+\section{What you have}
+% ============================================================
+
+The application is seven files. They are pure client-side: there is no server-side code, no database, no executable component. Hostinger only serves them as static files.
+
+\begin{center}
+\small
+\begin{tabular}{lll}
+\textbf{File} & \textbf{Purpose} & \textbf{Permissions} \\ \hline
+\texttt{index.html}    & App shell, two views (entry, settings) & 644 \\
+\texttt{style.css}     & Mobile-first dark theme                 & 644 \\
+\texttt{app.js}        & Form logic, queue, view switching       & 644 \\
+\texttt{sync.js}       & WebDAV operations against Koofr         & 644 \\
+\texttt{sw.js}         & Service worker (offline shell cache)    & 644 \\
+\texttt{manifest.json} & PWA manifest (install metadata)         & 644 \\
+\texttt{icon.svg}      & App icon                                & 644 \\
+\end{tabular}
+\end{center}
+
+You will additionally create two access-control files during setup:
+
+\begin{center}
+\small
+\begin{tabular}{lll}
+\texttt{.htaccess}  & Apache directives (HTTPS, headers, auth)  & 644 \\
+\texttt{.htpasswd}  & Hashed login credentials (kept outside web root) & 600 \\
+\end{tabular}
+\end{center}
+
+% ============================================================
+\section{Deployment overview}
+% ============================================================
+
+End state once setup is complete:
+
+\begin{enumerate}[leftmargin=*,nosep]
+  \item The seven app files live in a folder on your Hostinger site, served over HTTPS.
+  \item The folder is protected by HTTP Basic auth, so the URL cannot be browsed without credentials.
+  \item Strong security headers (CSP, HSTS, frame protection) are applied by \texttt{.htaccess}.
+  \item On Android, the app is installed to the home screen and works offline.
+  \item Entries are saved locally first, then synced as CSV rows to a path of your choosing on Koofr.
+\end{enumerate}
+
+\notebox{Storing your own \emph{health data} on your own server is your responsibility. None of the following bypasses ordinary best practice: keep your hosting account 2FA-protected, keep your laptop and phone disk-encrypted with strong unlock credentials, and treat the Koofr app password the same way you treat any other credential.}
+
+\notebox{\textbf{Adapting to other hosts.} Hostinger is used here as a worked example because it has cheap shared hosting with Apache, HTTP Basic auth via hPanel, and \texttt{.htaccess} support. Only Steps 1--4 (location, upload, \texttt{.htaccess}, Basic auth) are Hostinger-specific. Steps 5--8 (Koofr app password, app settings, Cloudflare Worker, install on phone) are host-neutral. On a different host --- Netlify, Cloudflare Pages, GitHub Pages with a custom domain, a small VPS running Apache or Nginx, etc.\ --- substitute that host's equivalents: its file-upload mechanism, its way of forcing HTTPS, its way of setting response headers (or a CDN in front), and its way of gating the URL with a password (Basic auth, an OAuth proxy, or platform-native access control). The CSP value, the Worker code, and the Koofr side are identical regardless of host.}
+
+% ============================================================
+\section{Prerequisites}
+% ============================================================
+
+\begin{itemize}[leftmargin=*]
+  \item Hostinger hosting plan with hPanel access (any plan with PHP/static hosting is fine; the app does not require PHP).
+  \item A domain or subdomain attached to your hosting (the app will live at e.g.\ \url{https://yourdomain.example/inflam-XXXX/}).
+  \item A Koofr account.
+  \item A modern browser on your laptop (Chrome, Edge, Firefox, or Safari) and an Android phone with Chrome.
+\end{itemize}
+
+% ============================================================
+\section{Step 1 --- Choose a deployment location}
+% ============================================================
+
+You have two reasonable options on Hostinger:
+
+\subsection*{Option A: Subfolder of an existing site}
+Place the files at \texttt{public\_html/inflam-XXXX/} where \texttt{XXXX} is a random suffix you choose. Accessed as \url{https://yourdomain.example/inflam-XXXX/}. Simplest; uses your existing SSL certificate.
+
+\subsection*{Option B: Dedicated subdomain}
+Create a subdomain in hPanel (e.g. \texttt{health.yourdomain.example}) and place the files in its document root. Slightly cleaner separation; Hostinger will issue a separate Let's Encrypt certificate automatically.
+
+\notebox{Either is fine. The remainder of this manual assumes Option A with the folder name \texttt{inflam-XXXX}. Substitute your actual path as needed.}
+
+\warnbox{Choose a non-obvious folder name. Avoid \texttt{inflam}, \texttt{health}, \texttt{tracker} as guessable; use something like \texttt{inflam-7f3a92} or any random suffix. The HTTP Basic auth in Step 4 is the real lock, but an unguessable URL is a useful second layer.}
+
+% ============================================================
+\section{Step 2 --- Upload the files}
+% ============================================================
+
+Two ways on Hostinger; pick whichever you find easier.
+
+\subsection{Method A: hPanel File Manager (browser, no setup)}
+
+\begin{enumerate}[leftmargin=*]
+  \item Log in to Hostinger $\rightarrow$ \textbf{Hosting} $\rightarrow$ \textbf{Manage} on your site $\rightarrow$ \textbf{File Manager}.
+  \item Navigate into \texttt{public\_html}.
+  \item Create a new folder, e.g. \texttt{inflam-7f3a92}.
+  \item Open the folder and use \textbf{Upload Files} to upload all seven app files.
+  \item After upload, right-click each file $\rightarrow$ \textbf{Permissions} and confirm \textbf{644}.
+  \item Right-click the folder $\rightarrow$ \textbf{Permissions} and confirm \textbf{755}.
+\end{enumerate}
+
+\subsection{Method B: SFTP from your laptop (faster for repeat uploads)}
+
+In hPanel, go to \textbf{Hosting} $\rightarrow$ \textbf{Advanced} $\rightarrow$ \textbf{SSH Access} (or \textbf{FTP Accounts}) and note the host, port, username, and password.
+
+From a terminal on macOS:
+
+\begin{lstlisting}[language=shell]
+# Copy the seven files (from the project directory)
+sftp -P 65002 u12345@yourhost.hostinger.com
+# Once connected:
+cd public_html
+mkdir inflam-7f3a92
+cd inflam-7f3a92
+put index.html
+put style.css
+put app.js
+put sync.js
+put sw.js
+put manifest.json
+put icon.svg
+bye
+\end{lstlisting}
+
+Then set permissions in one shot via SSH (if available on your plan):
+
+\begin{lstlisting}[language=shell]
+ssh -p 65002 u12345@yourhost.hostinger.com
+cd public_html/inflam-7f3a92
+chmod 755 .
+chmod 644 *.html *.css *.js *.json *.svg
+\end{lstlisting}
+
+\subsection{Quick check: it loads}
+
+Open \url{https://yourdomain.example/inflam-7f3a92/} in a desktop browser. You should see the entry form: four severity buttons (1--4), a location checkbox grid, two notes fields, and a Medication tickbox. If you get a 403 or a directory listing, recheck folder permissions and the presence of \texttt{index.html}.
+
+% ============================================================
+\section{Step 3 --- Apply security headers and force HTTPS}
+% ============================================================
+
+Hostinger normally enables HTTPS automatically via Let's Encrypt. We still want an explicit redirect to defeat any accidental \texttt{http://} link, and we want a Content Security Policy to harden against script injection.
+
+Create a file named \texttt{.htaccess} inside \texttt{inflam-7f3a92/} containing:
+
+\begin{lstlisting}[language=htaccess]
+# Force HTTPS
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+# Disable directory listing
+Options -Indexes
+
+# Security headers
+Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains"
+Header always set X-Content-Type-Options "nosniff"
+Header always set X-Frame-Options "DENY"
+Header always set Referrer-Policy "no-referrer"
+Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), interest-cohort=()"
+Header always set Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; manifest-src 'self'; connect-src 'self' https://app.koofr.net; worker-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"
+
+# Correct MIME types (Hostinger usually handles these, but explicit is safe)
+AddType application/manifest+json .json
+AddType image/svg+xml .svg
+AddType text/javascript .js
+\end{lstlisting}
+
+\warnbox{If you later deploy a Cloudflare Worker proxy (Section 7), you must add its origin to the \texttt{connect-src} directive, e.g.\ \texttt{connect-src 'self' https://app.koofr.net https://your-worker.workers.dev}. Otherwise the browser will block the sync request even before it leaves the page.}
+
+Set permissions: \texttt{644} on \texttt{.htaccess}.
+
+\subsection*{Verify the headers}
+
+From your laptop terminal:
+
+\begin{lstlisting}[language=shell]
+curl -I https://yourdomain.example/inflam-7f3a92/
+\end{lstlisting}
+
+You should see \texttt{Strict-Transport-Security}, \texttt{Content-Security-Policy}, \texttt{X-Frame-Options}, etc.\ in the response. If they are absent, your Hostinger plan may not allow \texttt{mod\_headers}; raise a support ticket --- it is unusual.
+
+% ============================================================
+\section{Step 4 --- Lock the URL with HTTP Basic auth}
+% ============================================================
+
+This is the most important security step. Until this is in place, anyone who learns the URL can load the app, read its source, and attempt entries against your Koofr.
+
+Hostinger offers a built-in flow for this. Recommended path:
+
+\subsection{Method A: hPanel built-in (easiest)}
+
+\begin{enumerate}[leftmargin=*]
+  \item In hPanel: \textbf{Advanced} $\rightarrow$ \textbf{Password Protect Directories}.
+  \item Select \texttt{public\_html/inflam-7f3a92}.
+  \item Set a username (e.g.\ your initials) and a strong password. Use a password manager.
+  \item Save.
+\end{enumerate}
+
+Hostinger writes a \texttt{.htaccess} (merged with yours) and a \texttt{.htpasswd} in a private location. Visiting the URL will now show a browser auth prompt.
+
+\notebox{If hPanel overwrites or conflicts with the \texttt{.htaccess} from Step 3, open the file in File Manager afterwards and confirm the security-headers block is still present. If it has been removed, paste it back in below the auth directives.}
+
+\subsection{Method B: Manual \texttt{.htpasswd} (if hPanel option absent)}
+
+If your plan doesn't expose the Password Protect feature, do it by hand.
+
+First, generate the password file. From your laptop:
+
+\begin{lstlisting}[language=shell]
+# Generate locally - replace yourname with whatever username you want
+htpasswd -Bc inflam.htpasswd yourname
+# (-B forces bcrypt; -c creates a new file)
+# Enter password twice when prompted
+cat inflam.htpasswd
+\end{lstlisting}
+
+Upload \texttt{inflam.htpasswd} to a location \textbf{outside} \texttt{public\_html} --- for example \texttt{/home/u12345/private/inflam.htpasswd}. (If your plan does not let you put files outside the web root, place it in \texttt{public\_html} and rely on the \texttt{.htaccess} below to block direct access.)
+
+Set its permission: \texttt{600}.
+
+Then append to \texttt{inflam-7f3a92/.htaccess}:
+
+\begin{lstlisting}[language=htaccess]
+# HTTP Basic auth
+AuthType Basic
+AuthName "Inflammation Tracker"
+AuthUserFile "/home/u12345/private/inflam.htpasswd"
+Require valid-user
+
+# Defence in depth: refuse to serve the password file even if path leaks
+<FilesMatch "\.htpasswd$">
+  Require all denied
+</FilesMatch>
+\end{lstlisting}
+
+Substitute your actual absolute path. After saving, reload the URL --- you should now see a login prompt.
+
+% ============================================================
+\section{Step 5 --- Create a Koofr app password}
+% ============================================================
+
+Never use your main Koofr password in the app's settings tab. Generate a dedicated, revocable app password instead.
+
+\begin{enumerate}[leftmargin=*]
+  \item Sign in to \url{https://app.koofr.net}.
+  \item Create a folder for the data, e.g. \texttt{/inflammation/}. (Optional --- the app will create it on first submit if missing.)
+  \item Go to \textbf{Account} $\rightarrow$ \textbf{Preferences} $\rightarrow$ \textbf{Password} $\rightarrow$ \textbf{Application-specific passwords}.
+  \item Click \textbf{Add new} and give it a descriptive name (e.g.\ ``inflam-pwa-phone'').
+  \item Copy the generated password \textbf{immediately} --- Koofr only shows it once.
+\end{enumerate}
+
+\warnbox{Koofr app-specific passwords are \emph{account-wide}: they give the same access as your main password, just under a separately revocable credential. They cannot be limited to a single folder. If an app password leaks, treat it as if your whole Koofr were exposed: revoke it from the same page in Koofr settings, and the leaked credential becomes useless.}
+
+What you still get from using an app password rather than your main one:
+\begin{itemize}[leftmargin=*,nosep]
+  \item Independent revocation without disturbing your main login.
+  \item Your main password (and its 2FA, if enabled) is never typed into this app or stored in any device's \texttt{localStorage}.
+  \item You can issue one app password per device (phone, laptop) so a lost device only forces revocation of that single credential.
+\end{itemize}
+
+% ============================================================
+\section{Step 6 --- First configuration in the app}
+% ============================================================
+
+\begin{enumerate}[leftmargin=*]
+  \item Open \url{https://yourdomain.example/inflam-7f3a92/} on your laptop. Enter the HTTP Basic auth credentials from Step 4.
+  \item Tap the gear icon (top right) to open settings.
+  \item Fill in:
+  \begin{itemize}[nosep]
+    \item \textbf{Koofr email}: the email on your Koofr account.
+    \item \textbf{Koofr app password}: the one generated in Step 5.
+    \item \textbf{CSV path on Koofr}: \texttt{/inflammation/log.csv} (or whatever you prefer).
+    \item \textbf{Proxy URL}: leave blank for now.
+  \end{itemize}
+  \item Click \textbf{Save settings}.
+  \item Click \textbf{Test connection}.
+\end{enumerate}
+
+\subsection*{If Test connection succeeds}
+You're done with setup. Go to Step 8.
+
+\subsection*{If Test connection fails with ``Network blocked... CORS''}
+This is expected for direct browser-to-Koofr requests in many cases. Proceed to Step 7 to deploy a proxy.
+
+\subsection*{If Test connection fails with ``Auth failed (401)''}
+Re-check the email and app password. Note Koofr may distinguish between your account email and a separate login name --- use whatever you log in to \url{app.koofr.net} with.
+
+% ============================================================
+\section{Step 7 --- Set up the Cloudflare Worker proxy}
+% ============================================================
+
+If Step 6's \textbf{Test connection} failed with a CORS / ``Network blocked'' message, this step fixes it. Koofr's WebDAV does not allow browsers to call it directly. You will deploy a tiny relay on Cloudflare that sits between your app and Koofr; it is free, takes about 5 minutes, and you only do it once.
+
+You will need three things along the way. Open a notepad and keep these as you go:
+
+\begin{center}
+\small
+\begin{tabular}{lp{0.55\linewidth}}
+\textbf{(A)} Your site's HTTPS origin & e.g.\ \texttt{https://yourdomain.example} \\
+\textbf{(B)} Worker URL & filled in at step 7.5 below \\
+\textbf{(C)} Whether you already have a Cloudflare account & sign-up takes 1 minute \\
+\end{tabular}
+\end{center}
+
+\subsection*{Do these steps in order}
+
+\textbf{7.1 Sign in to Cloudflare.}\\
+Go to \url{https://dash.cloudflare.com}. Create a free account if you don't have one. You do not need a domain registered with Cloudflare for this.
+
+\textbf{7.2 Open the Workers section.}\\
+In the left sidebar click \textbf{Workers \& Pages}. (If you don't see it, click the hamburger menu first.)
+
+\textbf{7.3 Create a new Worker.}\\
+Click \textbf{Create application} $\rightarrow$ \textbf{Create Worker}. Give it a name such as \texttt{koofr-proxy}. Click \textbf{Deploy} to accept the default placeholder. You will replace the code in the next step.
+
+\textbf{7.4 Edit the Worker code.}\\
+On the Worker's page click \textbf{Edit code} (top right). A code editor opens. Delete everything in it and paste this exactly:
+
+\begin{lstlisting}[language=shell]
+// Replace the line below with your site's HTTPS origin.
+const ALLOWED_ORIGIN = "https://yourdomain.example";
+
+export default {
+  async fetch(req) {
+    if (req.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders() });
+    }
+    const url = new URL(req.url);
+    const target = "https://app.koofr.net/dav/Koofr" + url.pathname;
+    const init = {
+      method: req.method,
+      headers: req.headers,
+      body: ["GET", "HEAD"].includes(req.method) ? undefined : req.body,
+      redirect: "manual",
+    };
+    const upstream = await fetch(target, init);
+    const headers = new Headers(upstream.headers);
+    for (const [k, v] of Object.entries(corsHeaders())) headers.set(k, v);
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers,
+    });
+  }
+};
+
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+    "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,PROPFIND,MKCOL,OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,Depth,If-Match",
+    "Access-Control-Expose-Headers": "ETag",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+\end{lstlisting}
+
+\warnbox{Change the \texttt{ALLOWED\_ORIGIN} value (line 2) to your actual site URL --- the one you put in (A) above. Use the exact scheme and domain, no trailing slash. If this doesn't match the site the request comes from, the browser will reject the response.}
+
+Click \textbf{Save and Deploy} (top right of the editor).
+
+\textbf{7.5 Copy the Worker's URL.}\\
+At the top of the Worker page, Cloudflare shows the public URL, looking like:
+\begin{quote}\texttt{https://koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev}\end{quote}
+Copy it. Write it down as \textbf{(B)} above. No trailing slash.
+
+\textbf{7.6 Put the Worker URL into the app's settings.}\\
+Open your hosted app in the browser. Open the gear (Settings) tab. In the \textbf{Proxy URL} field paste the Worker URL from (B). Click \textbf{Save settings}, then \textbf{Test connection}. It should now report \textbf{Connection OK}.
+
+\textbf{7.7 Update your \texttt{.htaccess} so the browser is allowed to talk to the Worker.}\\
+This is the easy-to-miss step. Without it, your browser's Content Security Policy will still block the request.
+
+Open the \texttt{.htaccess} file you created in Step 3 (using Hostinger File Manager $\rightarrow$ \texttt{public\_html/inflam-XXXX/}). Find the line that begins:
+\begin{lstlisting}[language=htaccess]
+Header always set Content-Security-Policy "...
+\end{lstlisting}
+Replace that one line with this (substituting your Worker URL):
+\begin{lstlisting}[language=htaccess]
+Header always set Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; manifest-src 'self'; connect-src 'self' https://app.koofr.net https://koofr-proxy.<your-account>.workers.dev; worker-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"
+\end{lstlisting}
+
+Save the file.
+
+\textbf{7.8 Verify.}\\
+Reload the app in your browser (Ctrl/Cmd-Shift-R for a hard reload). Go to Settings, click \textbf{Test connection}. Then go back to the entry view and save a test entry. The CSV should appear in your Koofr at the path you configured.
+
+\notebox{If you still get a CORS error after 7.7, the most common cause is a typo in either the Worker URL or the CSP line. Open browser DevTools (F12) $\rightarrow$ Console tab and read the exact CSP violation message --- it will print which origin was blocked, which makes the mismatch obvious.}
+
+% ============================================================
+\section{Step 8 --- Install on your phone}
+% ============================================================
+
+\subsection{Android (Chrome)}
+
+\begin{enumerate}[leftmargin=*]
+  \item Open the URL in Chrome and enter the HTTP Basic auth credentials.
+  \item Chrome should offer ``Install app'' or ``Add to home screen'' via the menu ($\vdots$).
+  \item Tap it; confirm. The icon appears on the home screen.
+  \item Launch it from the home screen. It runs full-screen without browser chrome.
+  \item Open settings inside the app and enter your Koofr email, app password, and (if used) Worker URL. These are stored in this device's browser storage only.
+\end{enumerate}
+
+\notebox{Chrome on Android caches the HTTP Basic auth credentials for the session, but may prompt again after a long period. Save them in your phone's password manager.}
+
+\subsection{Desktop (any Chromium browser)}
+
+In the address bar, an install icon appears once the manifest and service worker are detected. Click to install as a standalone window.
+
+\subsection{iOS (Safari)}
+
+Safari's PWA support is more limited. ``Add to Home Screen'' from the share menu works for the icon, but offline support and the service worker may behave differently. Android Chrome is the recommended phone target.
+
+% ============================================================
+\section{Where your data is stored --- a quick reference}
+% ============================================================
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\linewidth}{l X l}
+\textbf{Data} & \textbf{Stored at} & \textbf{Synced?} \\ \hline
+App source files (HTML/CSS/JS) & Your Hostinger account & --- \\
+Koofr email + app password & \texttt{localStorage} on each device, separately & No \\
+Offline queue of unsynced entries & \texttt{localStorage} on each device, separately & No \\
+Cached app shell (for offline use) & Service worker cache on each device & No \\
+HTTP Basic auth credentials & Your password manager + browser keychain & No \\
+\textbf{Daily entries (the actual log)} & CSV file on Koofr at your chosen path & Yes \\
+\end{tabularx}
+\end{center}
+
+Only the CSV is shared across devices. Everything else is per-device.
+
+If you clear browsing data for your hosting origin, the app's settings and the unsynced queue on \emph{that device} will be lost --- but historical entries on Koofr are unaffected.
+
+% ============================================================
+\section{Maintenance and recovery}
+% ============================================================
+
+\subsection{Rotating the Koofr app password}
+On Koofr settings, revoke the old app-specific password and generate a new one. Update the app's settings tab on each device.
+
+\subsection{Resetting one device}
+Settings tab in the app, edit the fields, save. There is no other state to clear.
+
+\subsection{Losing a device}
+\begin{enumerate}[leftmargin=*,nosep]
+  \item Sign in to Koofr from another device $\rightarrow$ revoke the app password used by the lost device.
+  \item Optionally change your Hostinger Basic auth password to invalidate the cached credential.
+\end{enumerate}
+
+\subsection{Backing up the CSV}
+The CSV \emph{is} your data. Koofr offers desktop sync clients that mirror it locally. Recommended: install a Koofr desktop client and let it sync the \texttt{/inflammation/} folder to a local directory included in your usual backups.
+
+\subsection{Inspecting the data}
+\texttt{log.csv} opens directly in Excel, Numbers, pandas (\texttt{pd.read\_csv}), or MATLAB (\texttt{readtable}). The schema is:
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\linewidth}{l X}
+\textbf{Column} & \textbf{Meaning} \\ \hline
+\texttt{date}          & Entry date, \texttt{YYYY-MM-DD}. \\
+\texttt{time}          & Entry time, \texttt{HH:MM} (24h, local). \\
+\texttt{score}         & Inflammation severity, integer 1--4. 1 = no symptoms, 2 = minor but noticeable, 3 = moderate, 4 = severe. \\
+\texttt{locations}     & Pipe-delimited list of affected sites (e.g.\ \texttt{left wrist|right knee}). Drawn from the ten fixed checkboxes \emph{plus} any free-text value the user entered into the ``Other:'' field on the entry form. Empty string if no locations were ticked. \\
+\texttt{dietary\_notes} & Free-text dietary note ($\leq$ 200 chars). \\
+\texttt{other\_notes}   & Free-text general note ($\leq$ 200 chars). \\
+\texttt{methotrexate}   & \texttt{0} if not taken in the past 24 hours, \texttt{1} if taken. \\
+\end{tabularx}
+\end{center}
+
+Notes on parsing:
+\begin{itemize}[leftmargin=*,nosep]
+  \item All fields are CSV-escaped (wrapped in double quotes; internal quotes doubled). Excel, pandas and MATLAB handle this transparently.
+  \item Locations are easiest to expand with \texttt{df["locations"].str.split("|").explode()} (pandas) or \texttt{strsplit(T.locations, '|')} (MATLAB).
+  \item The \texttt{methotrexate} column was added partway through the project. Entries logged before that change will be missing the column and may parse as \texttt{NaN} --- treat them as ``unknown'', not ``0''.
+\end{itemize}
+
+\subsection{Updating the app}
+Edit the source files locally, re-upload via SFTP or File Manager, and bump \texttt{CACHE\_VERSION} at the top of \texttt{sw.js} (e.g.\ \texttt{"v1"} $\rightarrow$ \texttt{"v2"}). This forces the service worker to refresh the cached shell on next launch.
+
+% ============================================================
+\section{Troubleshooting}
+% ============================================================
+
+\subsection*{The app loads but submit shows ``Network blocked... CORS''}
+You need the Cloudflare Worker proxy (Section 7) and the corresponding CSP update.
+
+\subsection*{Submit fails with ``Auth failed (401)''}
+The Koofr email or app password is wrong, or the app password has been revoked. Regenerate and re-save.
+
+\subsection*{Submit succeeds locally but the CSV never updates on Koofr}
+Check the queue count in the top-right badge. Open settings $\rightarrow$ \textbf{Retry sync}. Read the error message there --- it surfaces the underlying HTTP status.
+
+\subsection*{Service worker not registering on the phone}
+Service workers require HTTPS. If your Hostinger SSL is not yet provisioned, wait a few minutes after first DNS pointing. Verify with \texttt{curl -I https://...} that the site responds 200 over HTTPS, then close and reopen the app.
+
+\subsection*{Phone install option doesn't appear}
+Confirm: HTTPS is working; \texttt{manifest.json} loads with content-type \texttt{application/manifest+json} (check in Chrome DevTools $\rightarrow$ Application $\rightarrow$ Manifest); \texttt{sw.js} registers without errors (DevTools $\rightarrow$ Application $\rightarrow$ Service Workers).
+
+\subsection*{Headers absent from \texttt{curl -I} output}
+Hostinger plan may have restricted \texttt{mod\_headers}. Open a support ticket --- on shared plans this is unusual but possible. As a fallback, the same headers can often be set via hPanel's Domain $\rightarrow$ Security section if exposed.
+
+\subsection*{\texttt{.htaccess} causes 500 Internal Server Error}
+A directive is unsupported. Comment out blocks until you find the offender. Most commonly: \texttt{mod\_headers} not loaded (rare on Hostinger) --- you can wrap the \texttt{Header} lines in \texttt{<IfModule mod\_headers.c>...</IfModule>}.
+
+% ============================================================
+\section{Security summary --- what protects what}
+% ============================================================
+
+A compact mapping from threat to defence, so you can verify each is in place.
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.42\linewidth} X}
+\textbf{Threat} & \textbf{Defence in this setup} \\ \hline
+Someone discovers the URL and reads the app & HTTP Basic auth (Step 4); unguessable folder name (Step 1) \\
+Network sniffing of credentials in transit & HTTPS enforced (Step 3); HSTS \\
+Malicious script injection into the page & Strict Content Security Policy (Step 3); no inline JS/CSS in app code \\
+Page embedded in an iframe for clickjacking & \texttt{X-Frame-Options: DENY} + CSP \texttt{frame-ancestors 'none'} \\
+Leak of Koofr app password & Independently revocable from Koofr settings; one app password per device (Step 5) \\
+Hostinger account compromise & Hostinger account 2FA (configure in hPanel); separation of credentials \\
+Device loss / theft & OS disk encryption; revoke that device's Koofr app password \\
+Browser malware reading \texttt{localStorage} & Mitigated by CSP (prevents injected script in app); not fully eliminated --- consider passphrase-encryption add-on if at-risk \\
+Koofr account compromise & Koofr account 2FA; app-specific passwords are independently revocable \\
+Loss of unsynced queue & Sync regularly when online; CSV on Koofr is authoritative \\
+\end{tabularx}
+\end{center}
+
+% ============================================================
+\section*{Appendix --- The \texttt{.htaccess} file (full)}
+% ============================================================
+\addcontentsline{toc}{section}{Appendix --- The .htaccess file (full)}
+
+For convenience, here is the complete recommended \texttt{.htaccess} combining all steps. Replace \texttt{<your-account>} with your Cloudflare account name (or remove the Worker entry if you don't use one), and adjust the \texttt{AuthUserFile} path.
+
+\begin{lstlisting}[language=htaccess]
+# --- Force HTTPS ---
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+# --- No directory listings ---
+Options -Indexes
+
+# --- Security headers ---
+<IfModule mod_headers.c>
+  Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "no-referrer"
+  Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), interest-cohort=()"
+  Header always set Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; manifest-src 'self'; connect-src 'self' https://app.koofr.net https://koofr-proxy.<your-account>.workers.dev; worker-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"
+</IfModule>
+
+# --- MIME types ---
+AddType application/manifest+json .json
+AddType image/svg+xml .svg
+AddType text/javascript .js
+
+# --- HTTP Basic auth ---
+AuthType Basic
+AuthName "Inflammation Tracker"
+AuthUserFile "/home/u12345/private/inflam.htpasswd"
+Require valid-user
+
+# --- Block direct access to the password file (defence in depth) ---
+<FilesMatch "\.htpasswd$">
+  Require all denied
+</FilesMatch>
+\end{lstlisting}
+
+% ============================================================
+\section{Your working setup --- closing reference}
+% ============================================================
+
+What a fully working system looks like in your specific case. Use this as a memory aid when you've forgotten the details. Values in \textit{\color{red!70!black}red italics} are unknown to me at the time of writing --- fill them in once and they're recorded for future-you.
+
+\subsection{The pieces}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{lX}
+\textbf{Domain} & \texttt{\textit{\color{red!70!black}<your-domain>}} (hosted at Hostinger) \\
+\textbf{App URL} & \texttt{https://\textit{\color{red!70!black}<your-domain>}/\textit{\color{red!70!black}<your-folder-name>}/} \\
+\textbf{HTTP Basic auth} & username \textit{\color{red!70!black}<your username>}, password in your password manager \\
+\textbf{Cloudflare account} & \texttt{\textit{\color{red!70!black}<your-account>}} \\
+\textbf{Worker URL (proxy)} & \texttt{https://koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev} \\
+\textbf{Worker dashboard} & \url{https://dash.cloudflare.com} $\rightarrow$ Workers \& Pages $\rightarrow$ \texttt{koofr-proxy} \\
+\textbf{Koofr account} & login at \url{https://app.koofr.net} \\
+\textbf{Koofr CSV path} & \texttt{/inflammation/log.csv} \\
+\textbf{Koofr app password label} & \textit{\color{red!70!black}e.g.\ ``inflam-pwa-laptop''} (manage at Koofr $\rightarrow$ Account $\rightarrow$ Preferences $\rightarrow$ Password $\rightarrow$ Application-specific passwords) \\
+\end{tabularx}
+\end{center}
+
+\subsection{What flows where}
+
+\begin{enumerate}[leftmargin=*,nosep]
+  \item You open \texttt{https://\textit{\color{red!70!black}<your-domain>}/\textit{\color{red!70!black}<your-folder-name>}/} on phone or laptop. Hostinger serves the static files; Apache enforces HTTPS, the security headers, and the HTTP Basic auth challenge.
+  \item Once authenticated, the seven app files load and the service worker caches them. The app runs entirely client-side.
+  \item \textbf{On-load check:} if Koofr credentials are saved in this browser's \texttt{localStorage} and the device is online, the app silently fetches \texttt{/inflammation/log.csv}, counts rows dated today, and shows a non-blocking note (``Heads up: you already saved \dots'') above the entry form if any exist. Submission is not blocked --- duplicates are allowed.
+  \item You fill in the form and tap \textbf{Save entry}. The entry is appended to a local queue in \texttt{localStorage}, then the app PUTs to your Cloudflare Worker at \texttt{koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev}.
+  \item The Worker forwards the request to \texttt{app.koofr.net/dav/Koofr/inflammation/log.csv} with your Basic auth (email + Koofr app password) and adds CORS headers on the reply.
+  \item Koofr writes the CSV row. The Worker passes the response back; the app removes the entry from the queue.
+\end{enumerate}
+
+\subsection{Where each piece of state lives}
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\linewidth}{lX}
+App source (HTML/CSS/JS) & Hostinger \texttt{public\_html/\textit{\color{red!70!black}<your-folder-name>}/} \\
+\texttt{.htaccess} & Same folder. Contains HTTPS redirect, security headers, CSP (which must list the Worker URL), HTTP Basic auth directives. \\
+\texttt{.htpasswd} & Outside \texttt{public\_html} (e.g.\ \texttt{/home/uXXXXX/private/inflam.htpasswd}) or set up via hPanel's Password Protect feature. \\
+Worker code & Cloudflare dashboard $\rightarrow$ \texttt{koofr-proxy} $\rightarrow$ Edit code. Critical line: \texttt{ALLOWED\_ORIGIN = "https://\textit{\color{red!70!black}<your-domain>}"}. \\
+Settings (per device) & \texttt{localStorage["settings"]} in each browser. Contains your Koofr email, app password, CSV path \texttt{/inflammation/log.csv}, and proxy URL \texttt{https://koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev}. \\
+Unsynced queue (per device) & \texttt{localStorage["queue"]}. \\
+Cached app shell (per device) & Service worker cache \texttt{inflam-shell-vN}. \\
+\textbf{The data} & \texttt{/inflammation/log.csv} on Koofr. This is the only authoritative store --- everything else can be rebuilt from the source files. \\
+\end{tabularx}
+\end{center}
+
+\subsection{Physical disk location of your credentials}
+
+The Koofr email + app password (and the offline queue) are written to the browser's \texttt{localStorage} under the JSON key \texttt{"settings"}. They never leave your devices except as Basic-auth headers sent to your Cloudflare Worker. The on-disk file format and location vary by browser:
+
+\subsubsection*{On macOS}
+
+\begingroup
+\renewcommand{\arraystretch}{1.35}
+\noindent\begin{tabularx}{\linewidth}{@{}>{\bfseries}l X@{}}
+\hline
+Browser & Path on disk (and notes) \\ \hline
+
+\textbf{Firefox} &
+\path{~/Library/Application Support/Firefox/Profiles/<id>.default-release/storage/default/https+++<your-domain>/ls/data.sqlite} \newline
+\emph{SQLite database. Find your profile id by opening} \texttt{about:profiles} \emph{in Firefox. Inspect via the Storage Inspector: right-click the page} $\rightarrow$ \emph{Inspect} $\rightarrow$ \emph{Storage tab} $\rightarrow$ \emph{Local Storage.} \\
+
+Chrome &
+\path{~/Library/Application Support/Google/Chrome/Default/Local Storage/leveldb/} \newline
+\emph{Binary leveldb store. Replace} \texttt{Default} \emph{with the profile directory name shown at} \texttt{chrome://version} \emph{if you use multiple profiles.} \\
+
+Edge &
+\path{~/Library/Application Support/Microsoft Edge/Default/Local Storage/leveldb/} \newline
+\emph{Same engine and format as Chrome.} \\
+
+Safari &
+\path{~/Library/Containers/com.apple.Safari/Data/Library/WebKit/WebsiteData/LocalStorage/} \newline
+\emph{One SQLite file per origin. Web Inspector reads it via} \emph{Develop} $\rightarrow$ \emph{Show Web Inspector} $\rightarrow$ \emph{Storage.} \\
+
+Brave &
+\path{~/Library/Application Support/BraveSoftware/Brave-Browser/Default/Local Storage/leveldb/} \newline
+\emph{Chromium-based, identical layout to Chrome.} \\
+\hline
+\end{tabularx}
+\endgroup
+
+\subsubsection*{On Android}
+
+\begingroup
+\renewcommand{\arraystretch}{1.35}
+\noindent\begin{tabularx}{\linewidth}{@{}>{\bfseries}l X@{}}
+\hline
+Browser & Path on disk (and notes) \\ \hline
+
+\textbf{Chrome} \emph{(also the home-screen PWA)} &
+\path{/data/data/com.android.chrome/app_chrome/Default/Local Storage/leveldb/} \newline
+\emph{Inside Chrome's private app sandbox. Other apps cannot read it; the file manager will not show it unless the device is rooted. An installed PWA shares this store --- it does not get its own.} \\
+
+Edge &
+\path{/data/data/com.microsoft.emmx/app_chrome/Default/Local Storage/leveldb/} \newline
+\emph{Same Chromium pattern.} \\
+
+Samsung Internet &
+\path{/data/data/com.sec.android.app.sbrowser/app_sbrowser/Default/Local Storage/leveldb/} \newline
+\emph{Chromium-based.} \\
+
+Firefox for Android &
+\path{/data/data/org.mozilla.firefox/files/mozilla/<profile>/storage/default/<origin>/ls/data.sqlite} \newline
+\emph{SQLite, mirroring desktop Firefox.} \\
+\hline
+\end{tabularx}
+\endgroup
+
+\notebox{On Android, all paths above are inside per-app private storage. You cannot reach them with a normal file manager. Use remote DevTools (below) to inspect.}
+
+\subsubsection*{On an iPhone or iPad --- iOS / iPadOS}
+
+\begingroup
+\renewcommand{\arraystretch}{1.35}
+\noindent\begin{tabularx}{\linewidth}{@{}>{\bfseries}l X@{}}
+\hline
+Browser & Path on disk (and notes) \\ \hline
+
+Safari &
+\path{/var/mobile/Containers/Data/Application/<UUID>/Library/WebKit/WebsiteData/LocalStorage/} \newline
+\emph{SQLite per origin. Path is not user-accessible without jailbreaking. To clear: Settings} $\rightarrow$ \emph{Safari} $\rightarrow$ \emph{Advanced} $\rightarrow$ \emph{Website Data} $\rightarrow$ \emph{find the site.} \\
+
+Chrome / Edge / Firefox / any other iOS browser &
+Same WebKit storage subsystem inside each app's own container. \newline
+\emph{Apple requires every browser on iOS to use WebKit; storage mechanics are identical but each app's container is isolated, so credentials entered in Chrome on iOS are not visible to Safari on the same phone.} \\
+
+Installed PWA (``Add to Home Screen'') &
+Each home-screen webapp gets a separate WebKit container. \newline
+\emph{Since iOS 17, this storage is increasingly isolated from regular Safari. Treat the PWA and Safari as two different stores: credentials entered in one will not appear in the other.} \\
+\hline
+\end{tabularx}
+\endgroup
+
+\subsubsection*{Inspecting or clearing the stored values}
+
+The on-disk files are binary or SQLite --- do not try to grep them directly. Use the browser's developer tools instead:
+
+\begin{itemize}[leftmargin=*,nosep]
+  \item \textbf{Mac, Firefox:} right-click the page $\rightarrow$ \textbf{Inspect} $\rightarrow$ \textbf{Storage} tab $\rightarrow$ \textbf{Local Storage} $\rightarrow$ your origin $\rightarrow$ the \texttt{settings} key shows the decoded JSON.
+  \item \textbf{Mac, Chrome / Edge / Brave:} F12 $\rightarrow$ \textbf{Application} tab $\rightarrow$ \textbf{Local Storage} $\rightarrow$ your origin.
+  \item \textbf{Mac, Safari:} enable \emph{Develop} menu in Preferences $\rightarrow$ Advanced $\rightarrow$ ``Show Develop menu'', then \textbf{Develop} $\rightarrow$ \textbf{Show Web Inspector} $\rightarrow$ \textbf{Storage}.
+  \item \textbf{Android phone:} enable USB debugging in Android Developer Options, connect the phone to your Mac, open \url{chrome://inspect/#devices} in desktop Chrome, find the app under the phone's entry, click \textbf{inspect}. DevTools then opens for the remote page.
+  \item \textbf{iPhone / iPad:} enable Web Inspector in iOS Settings $\rightarrow$ Safari $\rightarrow$ Advanced; connect the device to your Mac by Lightning/USB-C cable; on the Mac open Safari $\rightarrow$ Develop menu $\rightarrow$ select your iPhone $\rightarrow$ the page.
+  \item \textbf{To wipe credentials on any device:} either edit the Settings tab in the app and clear the fields, or use the browser's ``Clear site data'' for the origin. Both erase the offline queue too, so sync anything pending first.
+\end{itemize}
+
+\notebox{The values on disk are not encrypted by the browser; they are protected by OS-level mechanisms only (your macOS user permissions and FileVault, Android's app sandbox and device encryption, iOS's app sandbox). Anyone with an unlocked, signed-in session on the device can read them via the steps above. This is why the manual recommends one Koofr app password per device --- losing a device only forces revocation of that single credential.}
+
+\subsection{How to deploy a change}
+
+\begin{enumerate}[leftmargin=*,nosep]
+  \item Edit the relevant file(s) locally.
+  \item Open \texttt{sw.js}, bump \texttt{CACHE\_VERSION} (e.g.\ \texttt{"v2"} $\rightarrow$ \texttt{"v3"}). This forces every device to fetch the new shell on next open.
+  \item Upload the changed files to Hostinger (File Manager or SFTP), preserving the folder structure.
+  \item If you changed the CSP or the Worker URL, update \texttt{.htaccess} accordingly and re-upload.
+  \item Hard-reload the app on your laptop (Cmd-Shift-R) and confirm. On your phone, fully close the PWA and reopen it; you may need to do this twice on the first launch after a SW update.
+\end{enumerate}
+
+\subsection{Sanity-check routines}
+
+If something stops working, run through this in order:
+
+\begin{enumerate}[leftmargin=*,nosep]
+  \item Does \texttt{https://\textit{\color{red!70!black}<your-domain>}/\textit{\color{red!70!black}<your-folder-name>}/} load and prompt for HTTP Basic auth? If not, check Hostinger SSL status and the \texttt{.htaccess}.
+  \item Settings tab $\rightarrow$ \textbf{Test connection}. Failure messages map as follows:
+    \begin{itemize}[leftmargin=*,nosep]
+      \item ``Auth failed (401)'' --- Koofr email or app password wrong. Regenerate at Koofr if in doubt.
+      \item ``Network blocked / CORS'' --- The Worker URL in Settings is wrong, the Worker is down, or the CSP in \texttt{.htaccess} doesn't include the Worker URL. Open browser DevTools $\rightarrow$ Console for the exact CSP violation.
+    \end{itemize}
+  \item Browser DevTools $\rightarrow$ Network: a successful PUT to the Worker should return 200 or 201 (created) on first write, 204 (no content) on subsequent writes.
+  \item Worker still alive? Cloudflare dashboard $\rightarrow$ Workers \& Pages $\rightarrow$ \texttt{koofr-proxy}. The Worker is free-tier and effectively never expires, but if you ever delete it accidentally, re-create from the code template in Step 7.
+\end{enumerate}
+
+\subsection{Backup}
+
+The CSV at \texttt{/inflammation/log.csv} on Koofr is the only file that contains your data. Install the Koofr desktop client (from \url{https://koofr.eu}) on your Mac, point it at \texttt{/inflammation/}, and let it mirror to a local folder included in Time Machine. Then a Koofr outage, an accidental delete, and a laptop loss all need to happen together for the data to be unrecoverable.
+
+\subsection{If you ever need to rebuild from scratch}
+
+You'd need: the seven app files, this manual, the Cloudflare Worker code (Step 7), and these credentials --- Hostinger login, Cloudflare login, Koofr login, and the Basic auth password. With those, the whole system can be reconstructed end-to-end in about an hour.
+
+\vspace{1.5em}
+\hrule
+\vspace{6pt}
+\small\color{gray}
+End of manual. Iterate as your setup evolves --- the security baseline above is the starting point, not the ceiling.
+
+\end{document}
