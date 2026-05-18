@@ -54,7 +54,7 @@ function corsHeaders(req) {
   return {
     "Access-Control-Allow-Origin": req.headers.get("Origin") || "*",
     "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,PROPFIND,MKCOL,OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization,Content-Type,Depth,If-Match",
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,Depth,If-Match,If-None-Match",
     "Access-Control-Expose-Headers": "ETag",
     "Access-Control-Max-Age": "86400",
   };

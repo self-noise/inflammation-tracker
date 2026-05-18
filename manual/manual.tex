@@ -94,7 +94,7 @@
 \thispagestyle{fancy}
 \vspace{-2.5em}
 
-{\small\color{gray}\hrule\vspace{4pt}A self-contained Progressive Web App for daily inflammation tracking, synced to your own Koofr account via WebDAV. Hosted as static files on Hostinger; runs offline; installs to phone home screen.\vspace{4pt}\hrule}
+{\small\color{gray}\hrule\vspace{4pt}A self-contained Progressive Web App for daily inflammation tracking, synced to your own Koofr account via WebDAV as one CSV file per entry. Hosted as static files on Hostinger; runs offline; installs to phone home screen.\vspace{4pt}\hrule}
 
 \vspace{1em}
 
@@ -141,7 +141,7 @@ End state once setup is complete:
   \item The folder is protected by HTTP Basic auth, so the URL cannot be browsed without credentials.
   \item Strong security headers (CSP, HSTS, frame protection) are applied by \texttt{.htaccess}.
   \item On Android, the app is installed to the home screen and works offline.
-  \item Entries are saved locally first, then synced as CSV rows to a path of your choosing on Koofr.
+  \item Entries are saved locally first, then synced to Koofr as individual one-row CSV files written into a folder of your choosing. Each entry has its own file at a unique path, so writes can never overwrite earlier entries.
 \end{enumerate}
 
 \notebox{Storing your own \emph{health data} on your own server is your responsibility. None of the following bypasses ordinary best practice: keep your hosting account 2FA-protected, keep your laptop and phone disk-encrypted with strong unlock credentials, and treat the Koofr app password the same way you treat any other credential.}
@@ -337,7 +337,7 @@ Never use your main Koofr password in the app's settings tab. Generate a dedicat
 
 \begin{enumerate}[leftmargin=*]
   \item Sign in to \url{https://app.koofr.net}.
-  \item Create a folder for the data, e.g. \texttt{/inflammation/}. (Optional --- the app will create it on first submit if missing.)
+  \item Create a folder for the data, e.g. \texttt{/inflammation/}. Per-entry CSV files will be written here. (Optional --- the app will create the folder on first submit if missing.)
   \item Go to \textbf{Account} $\rightarrow$ \textbf{Preferences} $\rightarrow$ \textbf{Password} $\rightarrow$ \textbf{Application-specific passwords}.
   \item Click \textbf{Add new} and give it a descriptive name (e.g.\ ``inflam-pwa-phone'').
   \item Copy the generated password \textbf{immediately} --- Koofr only shows it once.
@@ -363,7 +363,7 @@ What you still get from using an app password rather than your main one:
   \begin{itemize}[nosep]
     \item \textbf{Koofr email}: the email on your Koofr account.
     \item \textbf{Koofr app password}: the one generated in Step 5.
-    \item \textbf{CSV path on Koofr}: \texttt{/inflammation/log.csv} (or whatever you prefer).
+    \item \textbf{Log path on Koofr}: \texttt{/inflammation/log.csv} (or whatever you prefer). This field is interpreted as a \emph{template}: the directory part (\texttt{/inflammation/}) is where per-entry files are written, and the filename's base (\texttt{log}, without \texttt{.csv}) becomes the prefix on each per-entry filename, giving paths of the form \texttt{/inflammation/log\_\_<entry-date>\_\_<write-ms>.csv}. The file at the configured path itself is not written to --- a legacy single-file log can sit alongside the new files in the same folder.
     \item \textbf{Proxy URL}: leave blank for now.
   \end{itemize}
   \item Click \textbf{Save settings}.
@@ -442,7 +442,7 @@ function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
     "Access-Control-Allow-Methods": "GET,PUT,POST,DELETE,PROPFIND,MKCOL,OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization,Content-Type,Depth,If-Match",
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,Depth,If-Match,If-None-Match",
     "Access-Control-Expose-Headers": "ETag",
     "Access-Control-Max-Age": "86400",
   };
@@ -518,11 +518,11 @@ Koofr email + app password & \texttt{localStorage} on each device, separately & 
 Offline queue of unsynced entries & \texttt{localStorage} on each device, separately & No \\
 Cached app shell (for offline use) & Service worker cache on each device & No \\
 HTTP Basic auth credentials & Your password manager + browser keychain & No \\
-\textbf{Daily entries (the actual log)} & CSV file on Koofr at your chosen path & Yes \\
+\textbf{Daily entries (the actual log)} & Folder of one-row CSV files on Koofr, one file per entry & Yes \\
 \end{tabularx}
 \end{center}
 
-Only the CSV is shared across devices. Everything else is per-device.
+Only the entries folder on Koofr is shared across devices. Everything else is per-device.
 
 If you clear browsing data for your hosting origin, the app's settings and the unsynced queue on \emph{that device} will be lost --- but historical entries on Koofr are unaffected.
 
@@ -542,19 +542,40 @@ Settings tab in the app, edit the fields, save. There is no other state to clear
   \item Optionally change your Hostinger Basic auth password to invalidate the cached credential.
 \end{enumerate}
 
-\subsection{Backing up the CSV}
-The CSV \emph{is} your data. Koofr offers desktop sync clients that mirror it locally. Recommended: install a Koofr desktop client and let it sync the \texttt{/inflammation/} folder to a local directory included in your usual backups.
+\subsection{Backing up the entries folder}
+The folder of per-entry CSV files \emph{is} your data. Koofr offers desktop sync clients that mirror it locally. Recommended: install a Koofr desktop client and let it sync the \texttt{/inflammation/} folder to a local directory included in your usual backups.
 
 \subsection{Inspecting the data}
-\texttt{log.csv} opens directly in Excel, Numbers, pandas (\texttt{pd.read\_csv}), or MATLAB (\texttt{readtable}). The schema is:
+
+Each entry is its own one-row CSV file --- no header row inside any file --- with a filename of the form \texttt{<prefix>\_\_<entry-date>\_\_<write-ms>.csv}, where \texttt{<prefix>} is the basename of the log path configured in Settings (e.g.\ \texttt{log} for \texttt{/inflammation/log.csv}). To work with the log as a whole, list the folder and concatenate the matching files.
+
+A minimal one-liner in a shell to produce a single combined CSV (run in the synced local folder; adjust the prefix as needed):
+\begin{lstlisting}[language=shell]
+echo 'entry_id,write_timestamp,date,time,score,locations,dietary_notes,other_notes,methotrexate' > combined.csv
+cat $(ls -1 log__*.csv | sort) >> combined.csv
+\end{lstlisting}
+
+In Python with pandas:
+\begin{lstlisting}[language=shell]
+import glob, pandas as pd
+cols = ["entry_id","write_timestamp","date","time","score","locations",
+        "dietary_notes","other_notes","methotrexate"]
+files = sorted(glob.glob("log__*.csv"))
+df = pd.concat([pd.read_csv(f, header=None, names=cols) for f in files],
+               ignore_index=True)
+\end{lstlisting}
+
+The schema of each row is:
 
 \begin{center}
 \small
 \renewcommand{\arraystretch}{1.3}
 \begin{tabularx}{\linewidth}{l X}
 \textbf{Column} & \textbf{Meaning} \\ \hline
-\texttt{date}          & Entry date, \texttt{YYYY-MM-DD}. \\
-\texttt{time}          & Entry time, \texttt{HH:MM} (24h, local). \\
+\texttt{entry\_id}     & UUID v4 generated at submit time. Stable across retries; uniquely identifies the entry independent of filename. \\
+\texttt{write\_timestamp} & ISO 8601 with local timezone offset (e.g.\ \texttt{2026-05-18T15:30:22+01:00}). The moment the user tapped \emph{Save entry} on this device, not the moment the file reached Koofr. \\
+\texttt{date}          & The entry's \emph{subject} date, \texttt{YYYY-MM-DD}. User-editable on the form for retrospective entries. \\
+\texttt{time}          & The entry's \emph{subject} time, \texttt{HH:MM} (24h, local). Likewise user-editable. \\
 \texttt{score}         & Inflammation severity, integer 1--4. 1 = no symptoms, 2 = minor but noticeable, 3 = moderate, 4 = severe. \\
 \texttt{locations}     & Pipe-delimited list of affected sites (e.g.\ \texttt{left wrist|right knee}). Drawn from the ten fixed checkboxes \emph{plus} any free-text value the user entered into the ``Other:'' field on the entry form. Empty string if no locations were ticked. \\
 \texttt{dietary\_notes} & Free-text dietary note ($\leq$ 200 chars). \\
@@ -566,8 +587,10 @@ The CSV \emph{is} your data. Koofr offers desktop sync clients that mirror it lo
 Notes on parsing:
 \begin{itemize}[leftmargin=*,nosep]
   \item All fields are CSV-escaped (wrapped in double quotes; internal quotes doubled). Excel, pandas and MATLAB handle this transparently.
+  \item Per-entry files contain no header row. Supply column names when loading (\texttt{names=} in pandas, \texttt{ReadVariableNames=false} + \texttt{VariableNames} in MATLAB's \texttt{readtable}).
   \item Locations are easiest to expand with \texttt{df["locations"].str.split("|").explode()} (pandas) or \texttt{strsplit(T.locations, '|')} (MATLAB).
   \item The \texttt{methotrexate} column was added partway through the project. Entries logged before that change will be missing the column and may parse as \texttt{NaN} --- treat them as ``unknown'', not ``0''.
+  \item \texttt{entry\_id} and \texttt{write\_timestamp} were added when the storage model switched from a single appended CSV to one file per entry. Rows imported from the older single-file log will be missing both --- treat them as \texttt{NaN}.
 \end{itemize}
 
 \subsection{Updating the app}
@@ -583,7 +606,7 @@ You need the Cloudflare Worker proxy (Section 7) and the corresponding CSP updat
 \subsection*{Submit fails with ``Auth failed (401)''}
 The Koofr email or app password is wrong, or the app password has been revoked. Regenerate and re-save.
 
-\subsection*{Submit succeeds locally but the CSV never updates on Koofr}
+\subsection*{Submit succeeds locally but no per-entry file appears on Koofr}
 Check the queue count in the top-right badge. Open settings $\rightarrow$ \textbf{Retry sync}. Read the error message there --- it surfaces the underlying HTTP status.
 
 \subsection*{Service worker not registering on the phone}
@@ -683,7 +706,7 @@ What a fully working system looks like in your specific case. Use this as a memo
 \textbf{Worker URL (proxy)} & \texttt{https://koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev} \\
 \textbf{Worker dashboard} & \url{https://dash.cloudflare.com} $\rightarrow$ Workers \& Pages $\rightarrow$ \texttt{koofr-proxy} \\
 \textbf{Koofr account} & login at \url{https://app.koofr.net} \\
-\textbf{Koofr CSV path} & \texttt{/inflammation/log.csv} \\
+\textbf{Koofr log path} & \texttt{/inflammation/log.csv} (folder \texttt{/inflammation/}, per-entry filename prefix \texttt{log}) \\
 \textbf{Koofr app password label} & \textit{\color{red!70!black}e.g.\ ``inflam-pwa-laptop''} (manage at Koofr $\rightarrow$ Account $\rightarrow$ Preferences $\rightarrow$ Password $\rightarrow$ Application-specific passwords) \\
 \end{tabularx}
 \end{center}
@@ -693,10 +716,10 @@ What a fully working system looks like in your specific case. Use this as a memo
 \begin{enumerate}[leftmargin=*,nosep]
   \item You open \texttt{https://\textit{\color{red!70!black}<your-domain>}/\textit{\color{red!70!black}<your-folder-name>}/} on phone or laptop. Hostinger serves the static files; Apache enforces HTTPS, the security headers, and the HTTP Basic auth challenge.
   \item Once authenticated, the seven app files load and the service worker caches them. The app runs entirely client-side.
-  \item \textbf{On-load check:} if Koofr credentials are saved in this browser's \texttt{localStorage} and the device is online, the app silently fetches \texttt{/inflammation/log.csv}, counts rows dated today, and shows a non-blocking note (``Heads up: you already saved \dots'') above the entry form if any exist. Submission is not blocked --- duplicates are allowed.
-  \item You fill in the form and tap \textbf{Save entry}. The entry is appended to a local queue in \texttt{localStorage}, then the app PUTs to your Cloudflare Worker at \texttt{koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev}.
-  \item The Worker forwards the request to \texttt{app.koofr.net/dav/Koofr/inflammation/log.csv} with your Basic auth (email + Koofr app password) and adds CORS headers on the reply.
-  \item Koofr writes the CSV row. The Worker passes the response back; the app removes the entry from the queue.
+  \item \textbf{On-load check:} if Koofr credentials are saved in this browser's \texttt{localStorage} and the device is online, the app issues a Depth-1 PROPFIND on the entries folder, counts filenames matching today's prefix, and shows a non-blocking note (``Heads up: you already saved \dots'') above the entry form if any exist. Submission is not blocked --- duplicates are allowed.
+  \item You fill in the form and tap \textbf{Save entry}. The app generates a UUID (\texttt{entry\_id}) and a local-timezone ISO 8601 \texttt{write\_timestamp}, attaches both to the entry, pushes it to a local queue in \texttt{localStorage}, then PUTs to your Cloudflare Worker at \texttt{koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev}.
+  \item The Worker forwards the request to \texttt{app.koofr.net/dav/Koofr/inflammation/<prefix>\_\_<date>\_\_<ms>.csv} with your Basic auth (email + Koofr app password) and adds CORS headers on the reply. The PUT carries an \texttt{If-None-Match: *} header so a retry that lands on an already-existing path is a no-op rather than an overwrite.
+  \item Koofr writes the per-entry CSV file. The Worker passes the response back; the app removes the entry from the queue.
 \end{enumerate}
 
 \subsection{Where each piece of state lives}
@@ -709,10 +732,10 @@ App source (HTML/CSS/JS) & Hostinger \texttt{public\_html/\textit{\color{red!70!
 \texttt{.htaccess} & Same folder. Contains HTTPS redirect, security headers, CSP (which must list the Worker URL), HTTP Basic auth directives. \\
 \texttt{.htpasswd} & Outside \texttt{public\_html} (e.g.\ \texttt{/home/uXXXXX/private/inflam.htpasswd}) or set up via hPanel's Password Protect feature. \\
 Worker code & Cloudflare dashboard $\rightarrow$ \texttt{koofr-proxy} $\rightarrow$ Edit code. Critical line: \texttt{ALLOWED\_ORIGIN = "https://\textit{\color{red!70!black}<your-domain>}"}. \\
-Settings (per device) & \texttt{localStorage["settings"]} in each browser. Contains your Koofr email, app password, CSV path \texttt{/inflammation/log.csv}, and proxy URL \texttt{https://koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev}. \\
+Settings (per device) & \texttt{localStorage["settings"]} in each browser. Contains your Koofr email, app password, log path \texttt{/inflammation/log.csv} (used as a template for per-entry filenames), and proxy URL \texttt{https://koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev}. \\
 Unsynced queue (per device) & \texttt{localStorage["queue"]}. \\
 Cached app shell (per device) & Service worker cache \texttt{inflam-shell-vN}. \\
-\textbf{The data} & \texttt{/inflammation/log.csv} on Koofr. This is the only authoritative store --- everything else can be rebuilt from the source files. \\
+\textbf{The data} & The per-entry CSV files in \texttt{/inflammation/} on Koofr, named \texttt{log\_\_<date>\_\_<write-ms>.csv}. This folder is the only authoritative store --- everything else can be rebuilt from the source files. \\
 \end{tabularx}
 \end{center}
 
@@ -839,13 +862,13 @@ If something stops working, run through this in order:
       \item ``Auth failed (401)'' --- Koofr email or app password wrong. Regenerate at Koofr if in doubt.
       \item ``Network blocked / CORS'' --- The Worker URL in Settings is wrong, the Worker is down, or the CSP in \texttt{.htaccess} doesn't include the Worker URL. Open browser DevTools $\rightarrow$ Console for the exact CSP violation.
     \end{itemize}
-  \item Browser DevTools $\rightarrow$ Network: a successful PUT to the Worker should return 200 or 201 (created) on first write, 204 (no content) on subsequent writes.
+  \item Browser DevTools $\rightarrow$ Network: every successful PUT to the Worker should return 201 (created), since each save writes a new per-entry file. A 412 (Precondition Failed) coming back is not an error --- it means a retry hit a file that an earlier attempt had already written, which the app treats as success.
   \item Worker still alive? Cloudflare dashboard $\rightarrow$ Workers \& Pages $\rightarrow$ \texttt{koofr-proxy}. The Worker is free-tier and effectively never expires, but if you ever delete it accidentally, re-create from the code template in Step 7.
 \end{enumerate}
 
 \subsection{Backup}
 
-The CSV at \texttt{/inflammation/log.csv} on Koofr is the only file that contains your data. Install the Koofr desktop client (from \url{https://koofr.eu}) on your Mac, point it at \texttt{/inflammation/}, and let it mirror to a local folder included in Time Machine. Then a Koofr outage, an accidental delete, and a laptop loss all need to happen together for the data to be unrecoverable.
+The per-entry CSV files in \texttt{/inflammation/} on Koofr are the only place that contains your data. Install the Koofr desktop client (from \url{https://koofr.eu}) on your Mac, point it at \texttt{/inflammation/}, and let it mirror to a local folder included in Time Machine. Then a Koofr outage, an accidental delete, and a laptop loss all need to happen together for the data to be unrecoverable.
 
 \subsection{If you ever need to rebuild from scratch}
 
