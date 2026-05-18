@@ -9,6 +9,11 @@
  * follow the same code path — the queue is the single source of truth
  * for "what hasn't reached Koofr yet". A drain only removes an entry
  * after the server confirms.
+ *
+ * Each entry carries a stable entry_id (UUID v4) and a write_timestamp
+ * captured at the moment the user tapped Save (not when the sync
+ * eventually fires). These are generated in readEntry() so they survive
+ * offline queueing and are written into the per-entry CSV file on Koofr.
  */
 
 // Ordered as L/R pairs by body region so a 2-column grid with default
@@ -174,6 +179,35 @@ function fillDateTime() {
   els.fTime.value = pad(now.getHours()) + ":" + pad(now.getMinutes());
 }
 
+function generateEntryId() {
+  // crypto.randomUUID is supported in modern browsers (incl. iOS Safari 15.4+).
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback: 32 hex chars from crypto.getRandomValues, formatted as UUID v4.
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0"));
+  return h.slice(0, 4).join("") + "-" + h.slice(4, 6).join("") + "-"
+       + h.slice(6, 8).join("") + "-" + h.slice(8, 10).join("") + "-"
+       + h.slice(10, 16).join("");
+}
+
+function nowIsoLocal() {
+  // ISO 8601 with the device's local timezone offset, e.g.
+  // "2026-05-18T15:30:22+01:00". Pandas / Excel both parse this happily.
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const tz = -d.getTimezoneOffset();
+  const sign = tz >= 0 ? "+" : "-";
+  const oh = pad(Math.floor(Math.abs(tz) / 60));
+  const om = pad(Math.abs(tz) % 60);
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate())
+       + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds())
+       + sign + oh + ":" + om;
+}
+
 function readEntry() {
   const checked = Array.from(els.locGrid.querySelectorAll("input:checked"))
     .map((i) => i.value.toLowerCase()); // store lowercase to match spec example
@@ -185,6 +219,8 @@ function readEntry() {
     if (extra) checked.push(extra);
   }
   return {
+    entry_id: generateEntryId(),
+    write_timestamp: nowIsoLocal(),
     date: els.fDate.value,
     time: els.fTime.value,
     score: parseInt(els.fScore.value, 10),
@@ -227,7 +263,7 @@ async function drainQueue(silent) {
   while (queue.length > 0) {
     const entry = queue[0];
     try {
-      await window.SyncAPI.appendEntry(settings, entry);
+      await window.SyncAPI.writeEntry(settings, entry);
       queue.shift();
       saveQueue(queue);
       sent++;

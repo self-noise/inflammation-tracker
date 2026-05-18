@@ -27,6 +27,11 @@ export default {
       headers: req.headers,
       body: ["GET", "HEAD"].includes(req.method) ? undefined : req.body,
       redirect: "manual",
+      // Belt-and-braces: tell Cloudflare not to use its edge cache for any
+      // subrequest. Stale GETs on this proxy previously caused a data-loss
+      // bug; the app is now strictly write-only against unique paths, but
+      // any future read path must never be served from cache.
+      cf: { cacheTtl: -1, cacheEverything: false },
     };
     if (req.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders(req) });
@@ -34,6 +39,9 @@ export default {
     const upstream = await fetch(target, init);
     const headers = new Headers(upstream.headers);
     for (const [k, v] of Object.entries(corsHeaders(req))) headers.set(k, v);
+    // Override any cache hints from upstream — the data is mutable and must
+    // never be served stale from a browser or intermediate cache.
+    headers.set("Cache-Control", "no-store");
     return new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,

@@ -3,9 +3,11 @@
 A small, self-hosted [Progressive Web App](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/What_is_a_progressive_web_app) for daily self-reported inflammation logging (e.g., for inflammatory arthitis).
 
 It runs in the browser, installs to phone home screen, works offline, and syncs entries
-as CSV rows to your own [Koofr](https://koofr.eu) account via WebDAV. No
-backend, no database, no third-party service holding your data — just static
-files in front of a CSV file you own.
+to your own [Koofr](https://koofr.eu) account via WebDAV. Each saved entry is
+written as its own one-row CSV file at a unique path — no read-then-write,
+no shared file, no way for a write to clobber a previous entry. No backend,
+no database, no third-party service holding your data — just static files in
+front of a folder of CSV files you own.
 
 > **Disclaimer.** This is a self-hosted personal logging tool. It is not a
 > medical device, makes no clinical claims, and is not a substitute for
@@ -21,9 +23,9 @@ Browser (PWA on phone / laptop)
    ▼
 Static files on your web host
    │
-   │  WebDAV (GET / PUT) via Worker (CORS proxy)
+   │  WebDAV (PUT, PROPFIND) via Worker (CORS proxy)
    ▼
-Cloudflare Worker  ──────►  Koofr WebDAV (/<your-folder>/log.csv)
+Cloudflare Worker  ──────►  Koofr WebDAV (/<your-folder>/<prefix>__<date>__<ms>.csv)
 ```
 
 Three independently-owned tiers:
@@ -32,10 +34,46 @@ Three independently-owned tiers:
 |---|---|---|
 | **App** | Seven static files in `app/` | Any static web host with HTTPS and Basic-auth support (Hostinger is the worked example; Netlify/Cloudflare Pages/a small VPS all work) |
 | **Proxy** | A ~50-line Cloudflare Worker (`worker/worker.js`) that adds the CORS headers Koofr does not send | A free Cloudflare account |
-| **Storage** | A single append-only CSV file on Koofr at a path of your choice | A Koofr account (free tier is fine) |
+| **Storage** | A folder of one-row CSV files on Koofr, one file per entry | A Koofr account (free tier is fine) |
 
-The CSV on Koofr is the only authoritative store; everything else can be
-rebuilt from this repository.
+The folder of per-entry CSVs on Koofr is the only authoritative store;
+everything else can be rebuilt from this repository.
+
+### Why one file per entry?
+
+A previous design used a single `log.csv` and did GET-then-modify-then-PUT
+on every save. That pattern is silently destructive whenever any layer in
+the stack (browser HTTP cache, edge cache, eventual-consistency in object
+storage) returns a stale read: the PUT then overwrites the server's actual
+current state with a copy that lacks rows the read didn't see. The current
+design never reads before writing — each save is a single PUT to a path
+unique to that entry — so no write can ever overwrite another.
+
+### Schema
+
+Each per-entry file contains exactly one CSV row (no header), columns:
+
+```
+entry_id, write_timestamp, date, time, score, locations,
+dietary_notes, other_notes, methotrexate
+```
+
+- `entry_id` — UUID v4 generated at submit time; stable across retries
+- `write_timestamp` — ISO 8601 with local offset, captured when the user
+  tapped Save (not when the sync eventually fires)
+- `date`, `time` — the entry's *subject* date/time, user-editable for
+  retrospective entries
+- `score` — integer 1–4
+- `locations` — pipe-delimited, lowercased
+- `methotrexate` — 0 or 1
+
+### Reading the log for analysis
+
+The PWA never needs to read the full log. To analyse, list the entries
+directory and concatenate the matching files. A one-liner with `cat`
+works if the files are sorted lexicographically — the filename embeds the
+entry date and a millisecond timestamp, so a sorted listing is already in
+roughly chronological order.
 
 ## Repository layout
 
@@ -89,14 +127,19 @@ Most things are deliberately easy to change without restructuring the app.
 - **The medication question.** The methotrexate checkbox is wired into
   the Medication fieldset in `app/index.html` and stored as a 0/1
   column called `methotrexate`. Rename, add more, or remove entirely by
-  editing the fieldset, the `rowToCsv()` builder in `app/sync.js`, and
-  the CSV header on first write. If you remove the column entirely from
-  an in-use deployment, delete the CSV on Koofr first and let the app
-  recreate it — the code does not do in-place schema migration.
-- **CSV path on Koofr.** The default `/inflammation/log.csv` lives in
+  editing the fieldset and the `rowToCsv()` builder in `app/sync.js`.
+  Per-entry files written before the change keep the old columns;
+  rollup scripts should tolerate a mixed schema.
+- **Log path on Koofr.** The default `/inflammation/log.csv` lives in
   `DEFAULT_SETTINGS.path` at the top of `app/app.js` and in the
-  placeholder text of the settings form in `app/index.html`. Whatever
-  the user enters in Settings overrides the default at runtime.
+  placeholder text of the settings form. The directory part is where
+  per-entry files are written; the filename's base (without `.csv`) is
+  used as the prefix for each per-entry filename. So
+  `/MIT/MIT_log.csv` yields per-entry files at
+  `/MIT/MIT_log__<date>__<ms>.csv`. The `.csv` file at the configured
+  path itself is *not* written to — the prefix interpretation means
+  legacy single-file logs can live alongside the new per-entry files
+  in the same directory without interference.
 - **Cache version.** `CACHE_VERSION` in `app/sw.js` controls the offline
   shell cache. Bump it on every visible deploy so installed devices
   pick up the new files instead of serving the cached old ones.
