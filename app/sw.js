@@ -7,7 +7,7 @@
  * for everything else. Bump CACHE_VERSION to invalidate on deploy.
  */
 
-const CACHE_VERSION = "v9";
+const CACHE_VERSION = "v10";
 const CACHE_NAME = "inflam-shell-" + CACHE_VERSION;
 
 const SHELL = [

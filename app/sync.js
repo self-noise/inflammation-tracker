@@ -14,10 +14,14 @@
  *     file path = "/MIT/MIT_log__<entry-date>__<write-ms>.csv"
  *     e.g.       "/MIT/MIT_log__2026-05-18__1747584622456.csv"
  *
- * Each per-entry file contains a single CSV row (no header). To analyse the
- * log, list the directory and concatenate the matching files.
+ * Each per-entry file contains a CSV header row followed by a single data
+ * row. The header is included in every file so each file is fully self-
+ * describing — opening one in Excel or a text editor shows column names
+ * without needing the schema documented elsewhere, and future schema
+ * changes leave a clear forensic trail (a file written before a column
+ * was added has fewer headers and fewer data fields).
  *
- * Schema (one row per file):
+ * Schema (one data row per file, with header):
  *   entry_id, write_timestamp, date, time, score, locations,
  *   dietary_notes, other_notes, methotrexate
  *
@@ -30,6 +34,21 @@
  */
 
 const KOOFR_BASE = "https://app.koofr.net/dav/Koofr";
+
+// Column order must match rowToCsv(). Kept as the source of truth so changes
+// here also drive the header line written into each per-entry file.
+const CSV_COLUMNS = [
+  "entry_id",
+  "write_timestamp",
+  "date",
+  "time",
+  "score",
+  "locations",
+  "dietary_notes",
+  "other_notes",
+  "methotrexate",
+];
+const CSV_HEADER = CSV_COLUMNS.join(",") + "\n";
 
 /* ---- helpers ---- */
 
@@ -45,8 +64,8 @@ function csvEscape(field) {
 }
 
 function rowToCsv(entry) {
-  // One CSV row per file, no header. locations is pipe-delimited within its
-  // quoted field. methotrexate is 0 or 1.
+  // Single data row, fully quoted. Column order must match CSV_COLUMNS above.
+  // locations is pipe-delimited within its quoted field. methotrexate is 0 or 1.
   return [
     entry.entry_id,
     entry.write_timestamp,
@@ -58,6 +77,12 @@ function rowToCsv(entry) {
     entry.other_notes,
     entry.methotrexate,
   ].map(csvEscape).join(",") + "\n";
+}
+
+function fileContent(entry) {
+  // Header + data row. Header is plain unquoted column names; pandas and
+  // Excel parse the mixed (unquoted header, quoted data) form transparently.
+  return CSV_HEADER + rowToCsv(entry);
 }
 
 function splitLogPath(logPath) {
@@ -212,7 +237,7 @@ async function writeEntry(settings, entry) {
   } catch (e) {
     throw new Error(classifyError(e));
   }
-  const row = rowToCsv(entry);
+  const body = fileContent(entry);
   const url = buildUrl(settings, entryFullPath(settings, entry));
   let res;
   try {
@@ -224,7 +249,7 @@ async function writeEntry(settings, entry) {
         "Content-Type": "text/csv; charset=utf-8",
         "If-None-Match": "*", // create-only: refuse to overwrite an existing file
       },
-      body: row,
+      body,
     });
   } catch (e) {
     throw new Error("Could not write entry: " + classifyError(e));
@@ -265,7 +290,10 @@ window.SyncAPI = {
   countEntriesOnDate,
   classifyError,
   rowToCsv,        // exported for unit-test-style checks in console
+  fileContent,     // exported so callers can see exactly what a saved file looks like
   splitLogPath,    // exported for console inspection of the derived prefix
+  CSV_COLUMNS,
+  CSV_HEADER,
 };
 
 // CORS proxy Worker (needed because app.koofr.net doesn't send CORS headers

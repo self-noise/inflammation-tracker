@@ -547,22 +547,18 @@ The folder of per-entry CSV files \emph{is} your data. Koofr offers desktop sync
 
 \subsection{Inspecting the data}
 
-Each entry is its own one-row CSV file --- no header row inside any file --- with a filename of the form \texttt{<prefix>\_\_<entry-date>\_\_<write-ms>.csv}, where \texttt{<prefix>} is the basename of the log path configured in Settings (e.g.\ \texttt{log} for \texttt{/inflammation/log.csv}). To work with the log as a whole, list the folder and concatenate the matching files.
+Each entry is its own CSV file consisting of a header row plus one data row, with a filename of the form \texttt{<prefix>\_\_<entry-date>\_\_<write-ms>.csv}, where \texttt{<prefix>} is the basename of the log path configured in Settings (e.g.\ \texttt{log} for \texttt{/inflammation/log.csv}). Including the header in every file is deliberate: each file is fully self-describing, so a file written under one schema version remains unambiguous to read even after later columns are added or removed. To work with the log as a whole, list the folder and load the files.
 
-A minimal one-liner in a shell to produce a single combined CSV (run in the synced local folder; adjust the prefix as needed):
-\begin{lstlisting}[language=shell]
-echo 'entry_id,write_timestamp,date,time,score,locations,dietary_notes,other_notes,methotrexate' > combined.csv
-cat $(ls -1 log__*.csv | sort) >> combined.csv
-\end{lstlisting}
-
-In Python with pandas:
+In Python with pandas, each file's own header drives the parse:
 \begin{lstlisting}[language=shell]
 import glob, pandas as pd
-cols = ["entry_id","write_timestamp","date","time","score","locations",
-        "dietary_notes","other_notes","methotrexate"]
 files = sorted(glob.glob("log__*.csv"))
-df = pd.concat([pd.read_csv(f, header=None, names=cols) for f in files],
-               ignore_index=True)
+df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+\end{lstlisting}
+
+For a single combined CSV in a shell, keep the first file's header and skip headers on the rest:
+\begin{lstlisting}[language=shell]
+awk 'FNR==1 && NR!=1 {next} {print}' $(ls -1 log__*.csv | sort) > combined.csv
 \end{lstlisting}
 
 The schema of each row is:
@@ -586,8 +582,8 @@ The schema of each row is:
 
 Notes on parsing:
 \begin{itemize}[leftmargin=*,nosep]
-  \item All fields are CSV-escaped (wrapped in double quotes; internal quotes doubled). Excel, pandas and MATLAB handle this transparently.
-  \item Per-entry files contain no header row. Supply column names when loading (\texttt{names=} in pandas, \texttt{ReadVariableNames=false} + \texttt{VariableNames} in MATLAB's \texttt{readtable}).
+  \item Data fields are CSV-escaped (wrapped in double quotes; internal quotes doubled); the header line is plain unquoted column names. Excel, pandas and MATLAB handle the mix transparently.
+  \item Per-entry files include a header row, so \texttt{pd.read\_csv} / MATLAB's \texttt{readtable} pick up the column names automatically with no extra arguments. If you concatenate at the shell level, skip duplicate headers (one \texttt{awk} approach is shown above).
   \item Locations are easiest to expand with \texttt{df["locations"].str.split("|").explode()} (pandas) or \texttt{strsplit(T.locations, '|')} (MATLAB).
   \item The \texttt{methotrexate} column was added partway through the project. Entries logged before that change will be missing the column and may parse as \texttt{NaN} --- treat them as ``unknown'', not ``0''.
   \item \texttt{entry\_id} and \texttt{write\_timestamp} were added when the storage model switched from a single appended CSV to one file per entry. Rows imported from the older single-file log will be missing both --- treat them as \texttt{NaN}.

@@ -51,7 +51,7 @@ unique to that entry — so no write can ever overwrite another.
 
 ### Schema
 
-Each per-entry file contains exactly one CSV row (no header), columns:
+Each per-entry file contains a CSV header line followed by exactly one data row. Including the header in every file makes each file self-describing and future-proofs against schema changes — a file written before a column was added has fewer header names *and* fewer data fields, so reading it back is unambiguous without consulting external docs. Columns:
 
 ```
 entry_id, write_timestamp, date, time, score, locations,
@@ -70,10 +70,17 @@ dietary_notes, other_notes, methotrexate
 ### Reading the log for analysis
 
 The PWA never needs to read the full log. To analyse, list the entries
-directory and concatenate the matching files. A one-liner with `cat`
-works if the files are sorted lexicographically — the filename embeds the
-entry date and a millisecond timestamp, so a sorted listing is already in
-roughly chronological order.
+directory and load the matching files. Each file is self-describing
+(header + one row), so pandas can concatenate them directly:
+
+```python
+import glob, pandas as pd
+files = sorted(glob.glob("MIT_log__*.csv"))
+df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+```
+
+Filenames embed the entry date and a millisecond write timestamp, so a
+sorted listing is already in roughly chronological order.
 
 ## Repository layout
 
