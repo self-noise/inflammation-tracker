@@ -114,7 +114,7 @@ The application is seven files. They are pure client-side: there is no server-si
 \texttt{style.css}     & Mobile-first dark theme                 & 644 \\
 \texttt{app.js}        & Form logic, queue, view switching       & 644 \\
 \texttt{sync.js}       & WebDAV operations against Koofr         & 644 \\
-\texttt{sw.js}         & Service worker (offline shell cache)    & 644 \\
+\texttt{sw.js}         & Service worker (network-first, offline fallback) & 644 \\
 \texttt{manifest.json} & PWA manifest (install metadata)         & 644 \\
 \texttt{icon.svg}      & App icon                                & 644 \\
 \end{tabular}
@@ -590,7 +590,7 @@ Notes on parsing:
 \end{itemize}
 
 \subsection{Updating the app}
-Edit the source files locally, re-upload via SFTP or File Manager, and bump \texttt{CACHE\_VERSION} at the top of \texttt{sw.js} (e.g.\ \texttt{"v1"} $\rightarrow$ \texttt{"v2"}). This forces the service worker to refresh the cached shell on next launch.
+Edit the source files locally and re-upload via SFTP or File Manager. The service worker uses a \textbf{network-first} strategy for same-origin shell assets (with cache fallback for offline use), so each PWA load fetches the latest \texttt{index.html} / \texttt{app.js} / \texttt{sync.js} from the server whenever the network is reachable and you are authenticated. A \texttt{CACHE\_VERSION} bump in \texttt{sw.js} is therefore no longer mandatory for routine code changes; bump it only when (a) you change the \texttt{SHELL} array in \texttt{sw.js}, or (b) you want to force-evict every device's cache from a known-good baseline.
 
 % ============================================================
 \section{Troubleshooting}
@@ -604,6 +604,11 @@ The Koofr email or app password is wrong, or the app password has been revoked. 
 
 \subsection*{Submit succeeds locally but no per-entry file appears on Koofr}
 Check the queue count in the top-right badge. Open settings $\rightarrow$ \textbf{Retry sync}. Read the error message there --- it surfaces the underlying HTTP status.
+
+\subsection*{App appears stuck on an older version after a deploy}
+Symptom: a feature you know was added in a recent deploy is missing on a device that has the PWA installed --- e.g.\ per-entry files written without the CSV header even though that logic is in the deployed \texttt{sync.js}. Cause: the service worker's background update attempt fetched a 401 from \texttt{.htaccess} because the device's basic-auth session had expired. Older versions of \texttt{sw.js} used an \emph{atomic} \texttt{cache.addAll(SHELL)} on install, so a single 401 aborted the entire SW update and silently stranded the device on the previously cached code; the runtime fetch handler was also cache-first, so the stale code kept running indefinitely.
+
+The current \texttt{sw.js} hardens both halves: install uses individual \texttt{cache.add} calls under \texttt{Promise.allSettled} so partial failures are tolerated and logged via \texttt{console.warn}, and the fetch handler is network-first with cache fallback. A successful re-authentication via the foreground \texttt{.htaccess} prompt is enough for the next page load to pull fresh code from the server. If you ever see the symptom again on an unpatched device, the unblock is: fully close the PWA, open the site in a normal browser tab, complete the basic-auth prompt, then relaunch the PWA. As a stronger reset, ``Clear site data'' for the origin in browser DevTools nukes the SW and cache entirely (this also wipes \texttt{localStorage}, so sync any pending entries first).
 
 \subsection*{Service worker not registering on the phone}
 Service workers require HTTPS. If your Hostinger SSL is not yet provisioned, wait a few minutes after first DNS pointing. Verify with \texttt{curl -I https://...} that the site responds 200 over HTTPS, then close and reopen the app.
@@ -711,7 +716,7 @@ What a fully working system looks like in your specific case. Use this as a memo
 
 \begin{enumerate}[leftmargin=*,nosep]
   \item You open \texttt{https://\textit{\color{red!70!black}<your-domain>}/\textit{\color{red!70!black}<your-folder-name>}/} on phone or laptop. Hostinger serves the static files; Apache enforces HTTPS, the security headers, and the HTTP Basic auth challenge.
-  \item Once authenticated, the seven app files load and the service worker caches them. The app runs entirely client-side.
+  \item Once authenticated, the seven app files load. The service worker (\texttt{sw.js}) intercepts same-origin GETs and applies a network-first strategy with cache fallback: each load fetches fresh code from the server when reachable, falls back to the cached shell offline, and never overwrites the cache with a non-OK response (e.g.\ a 401 from an expired \texttt{.htaccess} session). The app runs entirely client-side.
   \item \textbf{On-load check:} if Koofr credentials are saved in this browser's \texttt{localStorage} and the device is online, the app issues a Depth-1 PROPFIND on the entries folder, counts filenames matching today's prefix, and shows a non-blocking note (``Heads up: you already saved \dots'') above the entry form if any exist. Submission is not blocked --- duplicates are allowed.
   \item You fill in the form and tap \textbf{Save entry}. The app generates a UUID (\texttt{entry\_id}) and a local-timezone ISO 8601 \texttt{write\_timestamp}, attaches both to the entry, pushes it to a local queue in \texttt{localStorage}, then PUTs to your Cloudflare Worker at \texttt{koofr-proxy.\textit{\color{red!70!black}<your-account>}.workers.dev}.
   \item The Worker forwards the request to \texttt{app.koofr.net/dav/Koofr/inflammation/<prefix>\_\_<date>\_\_<ms>.csv} with your Basic auth (email + Koofr app password) and adds CORS headers on the reply. The PUT carries an \texttt{If-None-Match: *} header so a retry that lands on an already-existing path is a no-op rather than an overwrite.
@@ -841,10 +846,10 @@ The on-disk files are binary or SQLite --- do not try to grep them directly. Use
 
 \begin{enumerate}[leftmargin=*,nosep]
   \item Edit the relevant file(s) locally.
-  \item Open \texttt{sw.js}, bump \texttt{CACHE\_VERSION} (e.g.\ \texttt{"v2"} $\rightarrow$ \texttt{"v3"}). This forces every device to fetch the new shell on next open.
   \item Upload the changed files to Hostinger (File Manager or SFTP), preserving the folder structure.
   \item If you changed the CSP or the Worker URL, update \texttt{.htaccess} accordingly and re-upload.
-  \item Hard-reload the app on your laptop (Cmd-Shift-R) and confirm. On your phone, fully close the PWA and reopen it; you may need to do this twice on the first launch after a SW update.
+  \item If you added or removed files in the \texttt{SHELL} array in \texttt{sw.js}, bump \texttt{CACHE\_VERSION} so the new shell layout takes effect cleanly. For routine code changes (editing \texttt{app.js}, \texttt{sync.js}, \texttt{style.css}, \texttt{index.html}) the network-first fetch handler picks up the new file on the next page load, so no bump is required.
+  \item Hard-reload the app on your laptop (Cmd-Shift-R) and confirm. On your phone, fully close the PWA and reopen it. The new code should be live; if it is not, see the \emph{App appears stuck on an older version after a deploy} entry under Troubleshooting.
 \end{enumerate}
 
 \subsection{Sanity-check routines}
