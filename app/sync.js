@@ -23,7 +23,7 @@
  *
  * Schema (one data row per file, with header):
  *   entry_id, write_timestamp, date, time, score, locations,
- *   dietary_notes, other_notes, methotrexate
+ *   dietary_notes, other_notes, methotrexate, naproxen
  *
  * Authentication is HTTP Basic with email + Koofr app password.
  *
@@ -47,6 +47,7 @@ const CSV_COLUMNS = [
   "dietary_notes",
   "other_notes",
   "methotrexate",
+  "naproxen",
 ];
 const CSV_HEADER = CSV_COLUMNS.join(",") + "\n";
 
@@ -65,7 +66,8 @@ function csvEscape(field) {
 
 function rowToCsv(entry) {
   // Single data row, fully quoted. Column order must match CSV_COLUMNS above.
-  // locations is pipe-delimited within its quoted field. methotrexate is 0 or 1.
+  // locations is pipe-delimited within its quoted field. methotrexate and
+  // naproxen are 0 or 1.
   return [
     entry.entry_id,
     entry.write_timestamp,
@@ -76,6 +78,7 @@ function rowToCsv(entry) {
     entry.dietary_notes,
     entry.other_notes,
     entry.methotrexate,
+    entry.naproxen,
   ].map(csvEscape).join(",") + "\n";
 }
 

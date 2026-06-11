@@ -87,6 +87,7 @@ const els = {
   fDiet: $("#f-diet"),
   fOther: $("#f-other"),
   fMtx: $("#f-mtx"),
+  fNap: $("#f-nap"),
   fLocOtherCb: $("#f-loc-other-cb"),
   fLocOtherText: $("#f-loc-other-text"),
   ragButtons: document.querySelectorAll(".rag-btn"),
@@ -228,6 +229,7 @@ function readEntry() {
     dietary_notes: els.fDiet.value.trim(),
     other_notes: els.fOther.value.trim(),
     methotrexate: els.fMtx.checked ? 1 : 0,
+    naproxen: els.fNap.checked ? 1 : 0,
   };
 }
 
@@ -244,6 +246,8 @@ function resetEntryForm() {
   els.fOther.value = "";
   els.fMtx.checked = false;
   els.fMtx.closest(".checkbox-row").classList.remove("checked");
+  els.fNap.checked = false;
+  els.fNap.closest(".checkbox-row").classList.remove("checked");
   els.fLocOtherCb.checked = false;
   els.fLocOtherText.value = "";
   els.fLocOtherCb.closest(".loc-other").classList.remove("checked");
@@ -433,6 +437,10 @@ function init() {
 
   els.fMtx.addEventListener("change", () => {
     els.fMtx.closest(".checkbox-row").classList.toggle("checked", els.fMtx.checked);
+  });
+
+  els.fNap.addEventListener("change", () => {
+    els.fNap.closest(".checkbox-row").classList.toggle("checked", els.fNap.checked);
   });
 
   // "Other" location: typing auto-ticks the checkbox so the user only needs
