@@ -20,3 +20,6 @@
 
 # Local data analysis — real health data, must never reach GitHub
 Data_Analysis_NoGit/
+
+# Local working notes — in-progress diagnostics, not part of the public release
+notes/
