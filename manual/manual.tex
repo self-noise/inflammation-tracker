@@ -226,7 +226,7 @@ chmod 644 *.html *.css *.js *.json *.svg
 
 \subsection{Quick check: it loads}
 
-Open \url{https://yourdomain.example/inflam-7f3a92/} in a desktop browser. You should see the entry form: four severity buttons (1--4), a location checkbox grid, two notes fields, and a Medication tickbox. If you get a 403 or a directory listing, recheck folder permissions and the presence of \texttt{index.html}.
+Open \url{https://yourdomain.example/inflam-7f3a92/} in a desktop browser. You should see the entry form: four severity buttons (1--4), a location checkbox grid, two notes fields, and a Medication fieldset with two tickboxes (methotrexate, naproxen). If you get a 403 or a directory listing, recheck folder permissions and the presence of \texttt{index.html}.
 
 % ============================================================
 \section{Step 3 --- Apply security headers and force HTTPS}
@@ -577,6 +577,7 @@ The schema of each row is:
 \texttt{dietary\_notes} & Free-text dietary note ($\leq$ 200 chars). \\
 \texttt{other\_notes}   & Free-text general note ($\leq$ 200 chars). \\
 \texttt{methotrexate}   & \texttt{0} if not taken in the past 24 hours, \texttt{1} if taken. \\
+\texttt{naproxen}       & \texttt{0} if not taken in the past 24 hours, \texttt{1} if taken. Added 2026-06-11; absent from files written before that date. \\
 \end{tabularx}
 \end{center}
 
@@ -585,7 +586,8 @@ Notes on parsing:
   \item Data fields are CSV-escaped (wrapped in double quotes; internal quotes doubled); the header line is plain unquoted column names. Excel, pandas and MATLAB handle the mix transparently.
   \item Per-entry files include a header row, so \texttt{pd.read\_csv} / MATLAB's \texttt{readtable} pick up the column names automatically with no extra arguments. If you concatenate at the shell level, skip duplicate headers (one \texttt{awk} approach is shown above).
   \item Locations are easiest to expand with \texttt{df["locations"].str.split("|").explode()} (pandas) or \texttt{strsplit(T.locations, '|')} (MATLAB).
-  \item The \texttt{methotrexate} column was added partway through the project. Entries logged before that change will be missing the column and may parse as \texttt{NaN} --- treat them as ``unknown'', not ``0''.
+  \item The medication columns were added partway through the project: \texttt{methotrexate} first, then \texttt{naproxen} on 2026-06-11. Entries logged before each change are missing that column and will parse as \texttt{NaN} --- treat them as ``unknown'', not ``0''. In particular, do not \texttt{fillna(0)} a medication column before analysis: that would silently recode ``not recorded'' as ``not taken'' and bias any association you compute against the drug.
+  \item New columns are \emph{appended} to the end of the schema rather than inserted, so a positional reader (e.g.\ \texttt{awk -F, '\{print \$9\}'}) keeps working across the schema boundary for the columns that existed before it. Because every file carries its own header, name-based loaders (\texttt{pd.read\_csv}, \texttt{readtable}) align old and new files automatically.
   \item \texttt{entry\_id} and \texttt{write\_timestamp} were added when the storage model switched from a single appended CSV to one file per entry. Rows imported from the older single-file log will be missing both --- treat them as \texttt{NaN}.
 \end{itemize}
 

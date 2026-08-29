@@ -55,7 +55,7 @@ Each per-entry file contains a CSV header line followed by exactly one data row.
 
 ```
 entry_id, write_timestamp, date, time, score, locations,
-dietary_notes, other_notes, methotrexate
+dietary_notes, other_notes, methotrexate, naproxen
 ```
 
 - `entry_id` — UUID v4 generated at submit time; stable across retries
@@ -66,6 +66,14 @@ dietary_notes, other_notes, methotrexate
 - `score` — integer 1–4
 - `locations` — pipe-delimited, lowercased
 - `methotrexate` — 0 or 1
+- `naproxen` — 0 or 1
+
+New medication columns are *appended* to the end of the schema rather than
+inserted, so positional column indices stay stable for files written under
+an earlier schema. Because every file carries its own header, a
+column-name-based loader (pandas, MATLAB's `readtable`) aligns old and new
+files automatically, leaving `NaN` where a file predates a column. Treat
+those `NaN`s as *unknown*, not as `0`.
 
 ### Reading the log for analysis
 
@@ -131,12 +139,17 @@ Most things are deliberately easy to change without restructuring the app.
   matching markup block in `app/index.html`) to change them. Storage
   format is pipe-delimited, lowercased; downstream code reads it back
   the same way.
-- **The medication question.** The methotrexate checkbox is wired into
-  the Medication fieldset in `app/index.html` and stored as a 0/1
-  column called `methotrexate`. Rename, add more, or remove entirely by
-  editing the fieldset and the `rowToCsv()` builder in `app/sync.js`.
-  Per-entry files written before the change keep the old columns;
-  rollup scripts should tolerate a mixed schema.
+- **The medication questions.** Two checkboxes (methotrexate and
+  naproxen) are wired into the Medication fieldset in `app/index.html`
+  and stored as 0/1 columns named `methotrexate` and `naproxen`.
+  Rename, add more, or remove entirely by editing the fieldset, the
+  `readEntry()` builder in `app/app.js`, and both `CSV_COLUMNS` and
+  `rowToCsv()` in `app/sync.js` — the last two must stay in the same
+  order, since `CSV_COLUMNS` is what writes each file's header. Append
+  new columns at the end rather than inserting them, so older files'
+  positional indices remain valid. Per-entry files written before the
+  change keep the old columns; rollup scripts should tolerate a mixed
+  schema.
 - **Log path on Koofr.** The default `/inflammation/log.csv` lives in
   `DEFAULT_SETTINGS.path` at the top of `app/app.js` and in the
   placeholder text of the settings form. The directory part is where

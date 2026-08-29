@@ -17,3 +17,6 @@
 .idea/
 *.swp
 *~
+
+# Local data analysis — real health data, must never reach GitHub
+Data_Analysis_NoGit/
